@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "DT NFC Identifier",
+    "slug": "dt-nfc-identifier",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dangerousthings.nfcidentifier",
+      "infoPlist": {
+        "NFCReaderUsageDescription": "This app uses NFC to scan transponders and identify compatible Dangerous Things implants."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "package": "com.dangerousthings.nfcidentifier",
+      "permissions": ["android.permission.NFC"]
+    },
+    "plugins": [
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "This app uses NFC to scan transponders and identify compatible Dangerous Things implants.",
+          "selectIdentifiers": [
+            "A0000000030000",
+            "D27600012401",
+            "A0000006472F0001"
+          ],
+          "systemCodes": []
+        }
+      ]
+    ]
+  }
+}
