@@ -4,7 +4,9 @@
  */
 
 export {detectChip, getDetectionSummary, canDoAdvancedDetection} from './detector';
-export {detectNtag, mightBeNtag, formatNtagVersionInfo} from './ntag';
+export type {DetectionProgressCallback} from './detector';
+export {detectNtag, mightBeNtag, formatNtagVersionInfo, detectImplantNameInMemory} from './ntag';
+export type {ImplantNameResult} from './ntag';
 export {
   detectMifareClassic,
   isMifareClassicSak,
@@ -15,9 +17,9 @@ export {
   IOS_MIFARE_CLASSIC_NOTE,
 } from './mifare';
 export type {SakSwapDetection} from './mifare';
-export {detectDesfire, mightBeDesfire, formatDesfireVersionInfo} from './desfire';
-export type {DesfireDetectionResult} from './desfire';
-export {detectIso15693, isIso15693, getIcManufacturerName} from './iso15693';
-export type {Iso15693DetectionResult} from './iso15693';
-export {detectJavaCard, mightBeJavaCard, formatCPLC} from './javacard';
+export {detectDesfire, mightBeDesfire, formatDesfireVersionInfo, detectSpark2Implant} from './desfire';
+export type {DesfireDetectionResult, Spark2DetectionResult} from './desfire';
+export {detectIso15693, isIso15693, getIcManufacturerName, detectSparkImplant} from './iso15693';
+export type {Iso15693DetectionResult, SparkDetectionResult} from './iso15693';
+export {detectJavaCard, mightBeJavaCard, formatCPLC, hasJavacardMemory} from './javacard';
 export type {JavaCardDetectionResult, CPLCData} from './javacard';

@@ -116,59 +116,87 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
     // First, try to select the Card Manager (ISD)
     // Card Manager selection might fail, but we can still try CPLC
     // Some cards allow CPLC without selecting an applet
+    let cardManagerSelected = false;
     try {
-      await sendIsoDepCommand(selectAid(KNOWN_AIDS.cardManager));
+      const cmResponse = await sendIsoDepCommand(
+        selectAid(KNOWN_AIDS.cardManager),
+      );
+      const cmParsed = parseApduResponse(cmResponse);
+      cardManagerSelected = cmParsed.isSuccess;
     } catch {
       // Ignore - some cards don't support Card Manager selection
     }
 
     // Get CPLC data
-    const cplcResponse = await sendIsoDepCommand(GET_CPLC);
-    const cplcParsed = parseApduResponse(cplcResponse);
+    let cplc: CPLCData | null = null;
+    let fabricatorName: string | undefined;
+    let osName: string | undefined;
 
-    if (!cplcParsed.isSuccess || cplcParsed.data.length < 20) {
-      // CPLC not available - might not be a JavaCard
-      return {
-        success: false,
-        error: 'CPLC data not available - may not be a JavaCard',
-      };
+    if (cardManagerSelected) {
+      try {
+        const cplcResponse = await sendIsoDepCommand(GET_CPLC);
+        const cplcParsed = parseApduResponse(cplcResponse);
+
+        if (cplcParsed.isSuccess && cplcParsed.data.length >= 20) {
+          cplc = parseCPLC(cplcParsed.data);
+          if (cplc) {
+            fabricatorName =
+              IC_FABRICATORS[cplc.icFabricator] ||
+              `Unknown (0x${cplc.icFabricator.toString(16)})`;
+            osName = identifyJcopVersion(cplc.osId) || undefined;
+          }
+        }
+      } catch {
+        // CPLC failed - will try AID probing
+      }
     }
 
-    // Parse CPLC
-    const cplc = parseCPLC(cplcParsed.data);
-
-    if (!cplc) {
-      return {
-        success: false,
-        error: 'Failed to parse CPLC data',
-      };
-    }
-
-    // Identify fabricator
-    const fabricatorName =
-      IC_FABRICATORS[cplc.icFabricator] ||
-      `Unknown (0x${cplc.icFabricator.toString(16)})`;
-
-    // Identify JCOP version
-    const osName = identifyJcopVersion(cplc.osId);
+    // Probe for installed applets (this also helps identify DT implants)
+    const installedApplets = await probeApplets();
 
     // Determine chip type
     let chipType: ChipType = ChipType.JAVACARD_UNKNOWN;
 
-    // Check if it's NXP JCOP4 (J3R180)
-    if (cplc.icFabricator === 0x4790 && osName?.includes('JCOP4')) {
+    // If we have CPLC and it's NXP JCOP4
+    if (cplc && cplc.icFabricator === 0x4790 && osName?.includes('JCOP4')) {
       chipType = ChipType.JCOP4;
     }
+    // If we found JavaCard Memory, it's definitely a JCOP4 (Apex/flexSecure)
+    else if (installedApplets.includes('JavaCard Memory')) {
+      chipType = ChipType.JCOP4;
+      if (!osName) {
+        osName = 'JCOP4 (VivoKey)';
+      }
+      if (!fabricatorName) {
+        fabricatorName = 'NXP Semiconductors';
+      }
+    }
+    // If Fidesmo is present, likely JCOP4
+    else if (installedApplets.includes('Fidesmo') && !cplc) {
+      chipType = ChipType.JCOP4;
+      if (!osName) {
+        osName = 'JCOP4 (Fidesmo)';
+      }
+    }
 
-    // Probe for installed applets
-    const installedApplets = await probeApplets();
+    // If no identification was successful at all
+    if (
+      chipType === ChipType.JAVACARD_UNKNOWN &&
+      !cplc &&
+      installedApplets.length === 0
+    ) {
+      return {
+        success: false,
+        error: 'Could not identify JavaCard - CPLC unavailable and no known applets found',
+      };
+    }
 
     return {
       success: true,
       chipType,
-      cplc,
+      cplc: cplc || undefined,
       fabricatorName,
-      osName: osName || `Unknown OS (0x${cplc.osId.toString(16)})`,
+      osName: osName || (cplc ? `Unknown OS (0x${cplc.osId.toString(16)})` : 'Unknown'),
       installedApplets,
     };
   } catch (error) {
@@ -187,6 +215,19 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
  */
 async function probeApplets(): Promise<string[]> {
   const found: string[] = [];
+
+  // Try JavaCard Memory Manager (indicates Apex or flexSecure)
+  try {
+    const response = await sendIsoDepCommand(
+      selectAid(KNOWN_AIDS.javacardMemory),
+    );
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('JavaCard Memory');
+    }
+  } catch {
+    // Applet not present
+  }
 
   // Try OpenPGP applet
   try {
@@ -210,7 +251,113 @@ async function probeApplets(): Promise<string[]> {
     // Applet not present
   }
 
+  // Try Fidesmo service discovery
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.fidesmo));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Fidesmo');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try PPSE (Proximity Payment System Environment) - indicates contactless payment card
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.ppse));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Payment (PPSE)');
+      // If PPSE is present, try to identify specific payment network
+      await probePaymentNetworks(found);
+    }
+  } catch {
+    // Not a payment card
+  }
+
   return found;
+}
+
+/**
+ * Probe for specific payment network applets
+ * Only called if PPSE is present (i.e., this is a payment card)
+ */
+async function probePaymentNetworks(found: string[]): Promise<void> {
+  // Try Visa
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.visaCredit));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Visa');
+      return; // Found payment network, no need to check others
+    }
+  } catch {
+    // Not present
+  }
+
+  // Try Mastercard
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.mastercard));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Mastercard');
+      return;
+    }
+  } catch {
+    // Not present
+  }
+
+  // Try Amex
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.amex));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('American Express');
+      return;
+    }
+  } catch {
+    // Not present
+  }
+
+  // Try Discover
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.discover));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Discover');
+      return;
+    }
+  } catch {
+    // Not present
+  }
+
+  // Try Maestro
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.maestro));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Maestro');
+      return;
+    }
+  } catch {
+    // Not present
+  }
+}
+
+/**
+ * Check if the JavaCard Memory Manager applet is present
+ * This indicates an Apex or flexSecure implant
+ */
+export async function hasJavacardMemory(): Promise<boolean> {
+  try {
+    const response = await sendIsoDepCommand(
+      selectAid(KNOWN_AIDS.javacardMemory),
+    );
+    const parsed = parseApduResponse(response);
+    return parsed.isSuccess;
+  } catch {
+    return false;
+  }
 }
 
 /**

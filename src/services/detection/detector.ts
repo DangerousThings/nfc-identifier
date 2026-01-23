@@ -14,15 +14,15 @@ import {
   CHIP_MEMORY_SIZES,
   CHIP_CLONEABILITY,
 } from '../../types/detection';
-import {detectNtag, mightBeNtag} from './ntag';
+import {detectNtag, mightBeNtag, detectImplantNameInMemory} from './ntag';
 import {
   detectMifareClassic,
   isMifareClassicSak,
   hasIsoDepCapability,
   detectSakSwap,
 } from './mifare';
-import {detectDesfire, detectDesfireFromAts} from './desfire';
-import {detectIso15693, isIso15693} from './iso15693';
+import {detectDesfire, detectDesfireFromAts, detectSpark2Implant} from './desfire';
+import {detectIso15693, isIso15693, detectSparkImplant} from './iso15693';
 import {detectJavaCard, mightBeJavaCard, detectJavaCardFromAts} from './javacard';
 
 /**
@@ -36,6 +36,7 @@ function createTransponder(
     versionInfo?: Transponder['versionInfo'];
     confidence?: Transponder['confidence'];
     sakSwapInfo?: Transponder['sakSwapInfo'];
+    implantName?: string;
   } = {},
 ): Transponder {
   const cloneInfo = CHIP_CLONEABILITY[type];
@@ -67,10 +68,46 @@ function createTransponder(
     },
     versionInfo: options.versionInfo,
     sakSwapInfo,
+    implantName: options.implantName,
     confidence: options.confidence ?? 'medium',
     detectedOn: Platform.OS as 'ios' | 'android',
   };
 }
+
+/**
+ * Determine implant name based on detected JavaCard applets
+ * - Fidesmo indicates Apex (only Apex has Fidesmo platform)
+ * - JavaCard Memory indicates Apex or flexSecure (both have it)
+ * - Payment applets indicate this is a payment card, not an implant
+ */
+function getJavacardImplantName(installedApplets?: string[]): string | undefined {
+  if (!installedApplets || installedApplets.length === 0) {
+    return undefined;
+  }
+
+  // Payment card detection - not an implant
+  if (installedApplets.includes('Payment (PPSE)')) {
+    const network = installedApplets.find(a =>
+      ['Visa', 'Mastercard', 'American Express', 'Discover', 'Maestro'].includes(a),
+    );
+    return network ? `${network} Payment Card` : 'Payment Card';
+  }
+
+  // Fidesmo is only on Apex
+  if (installedApplets.includes('Fidesmo')) {
+    return 'Apex';
+  }
+
+  // JavaCard Memory is on both Apex and flexSecure
+  if (installedApplets.includes('JavaCard Memory')) {
+    return 'Apex/flexSecure';
+  }
+
+  return undefined;
+}
+
+/** Progress callback type for detection updates */
+export type DetectionProgressCallback = (step: string) => void;
 
 /**
  * Detect chip type using waterfall approach
@@ -81,7 +118,10 @@ function createTransponder(
  * 3. Check for ISO-DEP capable chips (Phase 4: DESFire, Plus, JavaCard)
  * 4. Fall back to generic type based on technology
  */
-export async function detectChip(rawData: RawTagData): Promise<DetectionResult> {
+export async function detectChip(
+  rawData: RawTagData,
+  onProgress?: DetectionProgressCallback,
+): Promise<DetectionResult> {
   try {
     const {sak, techTypes} = rawData;
 
@@ -97,6 +137,8 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
     // Step 1: Check for MIFARE Classic
     // Use tech type detection first (most reliable on Android), then SAK
     // ========================================================================
+    onProgress?.('Checking MIFARE Classic...');
+
     const hasMifareClassicTech = techTypes.some(t =>
       t.includes('MifareClassic'),
     );
@@ -157,6 +199,7 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
     console.log('[Detector] mightBeNtag result:', couldBeNtag);
 
     if (couldBeNtag) {
+      onProgress?.('Reading NTAG version...');
       console.log('[Detector] Attempting NTAG detection...');
       const ntagResult = await detectNtag();
       console.log('[Detector] NTAG detection result:', {
@@ -166,6 +209,19 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
       });
 
       if (ntagResult.success && ntagResult.chipType) {
+        // Try to detect implant name in last memory pages
+        let implantName: string | undefined;
+        try {
+          onProgress?.('Checking for implant signature...');
+          const implantResult = await detectImplantNameInMemory(ntagResult.chipType);
+          if (implantResult.found && implantResult.name) {
+            implantName = implantResult.name;
+            console.log('[Detector] Found implant name in memory:', implantName);
+          }
+        } catch (e) {
+          console.warn('[Detector] Implant name detection failed:', e);
+        }
+
         return {
           success: true,
           transponder: createTransponder(ntagResult.chipType, rawData, {
@@ -173,6 +229,7 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
             versionInfo: ntagResult.versionInfo,
             confidence:
               ntagResult.chipType === ChipType.NTAG_UNKNOWN ? 'medium' : 'high',
+            implantName,
           }),
         };
       }
@@ -197,8 +254,29 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
     ) {
       // 3a: Always try DESFire/NTAG 424 DNA detection first via GET_VERSION
       // This command works on DESFire EV1/2/3, DESFire Light, NTAG 424 DNA
+      onProgress?.('Reading DESFire version...');
       const desfireResult = await detectDesfire();
       if (desfireResult.success && desfireResult.chipType) {
+        // Check for Spark 2 implant on NTAG 424 DNA / NTAG 413 DNA
+        let implantName: string | undefined;
+        const isNtagDna =
+          desfireResult.chipType === ChipType.NTAG424_DNA ||
+          desfireResult.chipType === ChipType.NTAG424_DNA_TT ||
+          desfireResult.chipType === ChipType.NTAG413_DNA;
+
+        if (isNtagDna) {
+          try {
+            onProgress?.('Reading NDEF for Spark 2...');
+            const spark2Result = await detectSpark2Implant();
+            if (spark2Result.found && spark2Result.name) {
+              implantName = spark2Result.name;
+              console.log('[Detector] Found Spark 2 implant:', implantName);
+            }
+          } catch (e) {
+            console.warn('[Detector] Spark 2 detection failed:', e);
+          }
+        }
+
         return {
           success: true,
           transponder: createTransponder(desfireResult.chipType, rawData, {
@@ -208,6 +286,7 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
               desfireResult.chipType === ChipType.DESFIRE_UNKNOWN
                 ? 'medium'
                 : 'high',
+            implantName,
           }),
         };
       }
@@ -231,13 +310,17 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
 
       // 3c: Try JavaCard detection (check historical bytes and CPLC)
       if (mightBeJavaCard(rawData.historicalBytes, rawData.ats)) {
+        onProgress?.('Probing JavaCard applets...');
         const jcResult = await detectJavaCard();
         if (jcResult.success && jcResult.chipType) {
+          // Determine implant name based on detected applets
+          const implantName = getJavacardImplantName(jcResult.installedApplets);
           return {
             success: true,
             transponder: createTransponder(jcResult.chipType, rawData, {
               confidence:
                 jcResult.chipType === ChipType.JCOP4 ? 'high' : 'medium',
+              implantName,
             }),
           };
         }
@@ -259,12 +342,16 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
 
       // 3d: If DESFire and likely JavaCard checks failed, try JavaCard as general fallback
       // (some JavaCards don't have obvious historical bytes)
+      onProgress?.('Probing for smartcard applets...');
       const jcFallback = await detectJavaCard();
       if (jcFallback.success && jcFallback.chipType) {
+        // Determine implant name based on detected applets
+        const implantName = getJavacardImplantName(jcFallback.installedApplets);
         return {
           success: true,
           transponder: createTransponder(jcFallback.chipType, rawData, {
             confidence: 'medium',
+            implantName,
           }),
         };
       }
@@ -296,6 +383,7 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
     // Step 4: Check for ISO 15693 (NFC-V) - SLIX and NTAG 5 detection
     // ========================================================================
     if (isIso15693(techTypes)) {
+      onProgress?.('Reading ISO 15693 system info...');
       const iso15693Result = await detectIso15693();
       if (iso15693Result.success && iso15693Result.chipType) {
         // Determine confidence based on whether we got a specific chip type
@@ -315,10 +403,24 @@ export async function detectChip(rawData: RawTagData): Promise<DetectionResult> 
               ? 'high'
               : 'medium';
 
+        // Check for Spark implant by reading NDEF for vivokey.co URL
+        let implantName: string | undefined;
+        try {
+          onProgress?.('Reading NDEF for Spark 1...');
+          const sparkResult = await detectSparkImplant(iso15693Result.chipType);
+          if (sparkResult.found && sparkResult.name) {
+            implantName = sparkResult.name;
+            console.log('[Detector] Found Spark implant:', implantName);
+          }
+        } catch (e) {
+          console.warn('[Detector] Spark detection failed:', e);
+        }
+
         return {
           success: true,
           transponder: createTransponder(iso15693Result.chipType, rawData, {
             confidence,
+            implantName,
           }),
         };
       }

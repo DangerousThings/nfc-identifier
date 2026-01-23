@@ -10,6 +10,8 @@ import {
   DESFIRE_GET_VERSION_CONTINUE,
   sendIsoDepCommand,
   parseApduResponse,
+  selectAid,
+  KNOWN_AIDS,
 } from '../nfc/commands';
 
 /**
@@ -404,4 +406,111 @@ export function formatDesfireVersionInfo(info: DesfireVersionInfo): string {
       ? `, SW: ${info.softwareMajor}.${info.softwareMinor}`
       : '';
   return version + software;
+}
+
+/**
+ * Result of Spark 2 detection
+ */
+export interface Spark2DetectionResult {
+  found: boolean;
+  name?: string;
+  url?: string;
+}
+
+/**
+ * Detect Spark 2 implant by reading NDEF from NTAG 424 DNA
+ * Spark 2 implants have a URI record pointing to vivokey.co/$code
+ *
+ * Uses Type 4 Tag NDEF reading:
+ * 1. SELECT NDEF application
+ * 2. SELECT NDEF file (E104)
+ * 3. READ BINARY to get NDEF message
+ */
+export async function detectSpark2Implant(): Promise<Spark2DetectionResult> {
+  try {
+    console.log('[DESFire] Checking for Spark 2 implant NDEF...');
+
+    // Step 1: Select NDEF application
+    const selectNdefApp = await sendIsoDepCommand(selectAid(KNOWN_AIDS.ndefTag));
+    const selectAppResponse = parseApduResponse(selectNdefApp);
+
+    if (!selectAppResponse.isSuccess) {
+      console.log('[DESFire] NDEF app selection failed');
+      return {found: false};
+    }
+
+    // Step 2: Select NDEF file (file ID E104 for standard NDEF)
+    // SELECT command: 00 A4 00 0C 02 E104
+    const selectFileCmd = [0x00, 0xa4, 0x00, 0x0c, 0x02, 0xe1, 0x04];
+    const selectFileResponse = await sendIsoDepCommand(selectFileCmd);
+    const selectFileParsed = parseApduResponse(selectFileResponse);
+
+    if (!selectFileParsed.isSuccess) {
+      console.log('[DESFire] NDEF file selection failed');
+      return {found: false};
+    }
+
+    // Step 3: Read NDEF length (first 2 bytes)
+    // READ BINARY: 00 B0 00 00 02
+    const readLengthCmd = [0x00, 0xb0, 0x00, 0x00, 0x02];
+    const readLengthResponse = await sendIsoDepCommand(readLengthCmd);
+    const lengthParsed = parseApduResponse(readLengthResponse);
+
+    if (!lengthParsed.isSuccess || lengthParsed.data.length < 2) {
+      console.log('[DESFire] NDEF length read failed');
+      return {found: false};
+    }
+
+    const ndefLength = (lengthParsed.data[0] << 8) | lengthParsed.data[1];
+    console.log('[DESFire] NDEF length:', ndefLength);
+
+    if (ndefLength === 0 || ndefLength > 500) {
+      console.log('[DESFire] Invalid NDEF length');
+      return {found: false};
+    }
+
+    // Step 4: Read NDEF message (starting after length bytes)
+    // READ BINARY: 00 B0 00 02 <length>
+    const readDataCmd = [0x00, 0xb0, 0x00, 0x02, Math.min(ndefLength, 128)];
+    const readDataResponse = await sendIsoDepCommand(readDataCmd);
+    const dataParsed = parseApduResponse(readDataResponse);
+
+    if (!dataParsed.isSuccess || dataParsed.data.length === 0) {
+      console.log('[DESFire] NDEF data read failed');
+      return {found: false};
+    }
+
+    console.log(
+      '[DESFire] NDEF data:',
+      dataParsed.data.map(b => b.toString(16).padStart(2, '0')).join(' '),
+    );
+
+    // Convert to ASCII and look for vivokey.co pattern
+    const asciiStr = dataParsed.data
+      .filter(b => b >= 0x20 && b <= 0x7e)
+      .map(b => String.fromCharCode(b))
+      .join('');
+
+    console.log('[DESFire] NDEF ASCII:', asciiStr);
+
+    // Check for vivokey.co URL pattern
+    const vivokeyMatch = asciiStr.match(/vivokey\.co\/([A-Za-z0-9]+)/i);
+    if (vivokeyMatch) {
+      const code = vivokeyMatch[1];
+      const url = `https://vivokey.co/${code}`;
+      console.log('[DESFire] Found Spark 2 URL:', url);
+
+      return {
+        found: true,
+        name: 'Spark 2',
+        url,
+      };
+    }
+
+    console.log('[DESFire] No vivokey.co URL found');
+    return {found: false};
+  } catch (error) {
+    console.warn('[DESFire] Spark 2 detection failed:', error);
+    return {found: false};
+  }
 }

@@ -1,18 +1,32 @@
-import React, {useMemo} from 'react';
-import {StyleSheet, View, ScrollView, Linking} from 'react-native';
-import {Button, Text, Surface, Divider, Chip} from 'react-native-paper';
-import type {ResultScreenProps} from '../types/navigation';
-import {DTColors} from '../theme';
-import {matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning} from '../services/matching';
-import {Product} from '../types/products';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View, ScrollView, Linking, TouchableOpacity } from 'react-native';
+import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
+import type { ResultScreenProps } from '../types/navigation';
+import { DTColors } from '../theme';
+import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning } from '../services/matching';
+import { Product } from '../types/products';
+import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
+import { getChipFamily } from '../types/detection';
 
-export function ResultScreen({route, navigation}: ResultScreenProps) {
-  const {tagData, transponder} = route.params;
+export function ResultScreen({ route, navigation }: ResultScreenProps) {
+  const { tagData, transponder } = route.params;
+  const [showChipInfo, setShowChipInfo] = useState(false);
 
   // Match chip to products
   const matchResult = useMemo(() => {
     if (!transponder) return null;
     return matchChipToProducts(transponder.type);
+  }, [transponder]);
+
+  // Get educational chip info
+  const chipInfo = useMemo(() => {
+    if (!transponder) return null;
+    return getChipInfo(transponder.type);
+  }, [transponder]);
+
+  const chipFamilyInfo = useMemo(() => {
+    if (!transponder) return null;
+    return getChipFamilyInfo(getChipFamily(transponder.type));
   }, [transponder]);
 
   const handleConversionLink = () => {
@@ -36,7 +50,7 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
       medium: DTColors.modeEmphasis,
       low: DTColors.modeWarning,
     };
-    return {color: colors[transponder.confidence], label: `${transponder.confidence.toUpperCase()} CONFIDENCE`};
+    return { color: colors[transponder.confidence], label: `${transponder.confidence.toUpperCase()} CONFIDENCE` };
   };
 
   return (
@@ -54,16 +68,39 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
               {transponder.chipName}
             </Text>
 
+            {/* Show implant name if detected from memory, or payment device */}
+            {transponder.implantName && (
+              transponder.implantName.includes('Payment Card') ? (
+                <View style={styles.paymentDeviceRow}>
+                  <Text variant="labelMedium" style={styles.paymentDeviceLabel}>
+                    PAYMENT DEVICE DETECTED
+                  </Text>
+                  <Text variant="titleLarge" style={styles.paymentDeviceValue}>
+                    {transponder.implantName.replace(' Payment Card', '')}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.implantNameRow}>
+                  <Text variant="labelMedium" style={styles.implantNameLabel}>
+                    IMPLANT DETECTED
+                  </Text>
+                  <Text variant="titleLarge" style={styles.implantNameValue}>
+                    {transponder.implantName}
+                  </Text>
+                </View>
+              )
+            )}
+
             <View style={styles.chipMeta}>
               <Chip
-                style={[styles.familyChip, {borderColor: DTColors.modeNormal}]}
+                style={[styles.familyChip, { borderColor: DTColors.modeNormal }]}
                 textStyle={styles.familyChipText}>
                 {transponder.family}
               </Chip>
               {getConfidenceLabel() && (
                 <Chip
-                  style={[styles.confidenceChip, {borderColor: getConfidenceLabel()!.color}]}
-                  textStyle={[styles.confidenceChipText, {color: getConfidenceLabel()!.color}]}>
+                  style={[styles.confidenceChip, { borderColor: getConfidenceLabel()!.color }]}
+                  textStyle={[styles.confidenceChipText, { color: getConfidenceLabel()!.color }]}>
                   {getConfidenceLabel()!.label}
                 </Chip>
               )}
@@ -86,7 +123,7 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
               </Text>
               <Text
                 variant="bodyLarge"
-                style={[styles.detailValue, {color: getCloneabilityColor()}]}>
+                style={[styles.detailValue, { color: getCloneabilityColor() }]}>
                 {transponder.isCloneable ? 'YES' : 'NO'}
               </Text>
             </View>
@@ -99,13 +136,114 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
           </Surface>
         )}
 
-        {/* Product Matches Card */}
-        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && (
+        {/* Educational Chip Info Card */}
+        {transponder && (chipInfo || chipFamilyInfo) && (
+          <Surface style={styles.chipInfoCard} elevation={1}>
+            <TouchableOpacity
+              onPress={() => setShowChipInfo(!showChipInfo)}
+              style={styles.chipInfoHeader}
+              activeOpacity={0.7}>
+              <Text variant="labelLarge" style={styles.chipInfoLabel}>
+                ABOUT THIS CHIP
+              </Text>
+              <Text style={styles.expandIndicator}>
+                {showChipInfo ? '▼' : '▶'}
+              </Text>
+            </TouchableOpacity>
+
+            {showChipInfo && (
+              <>
+                <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
+
+                {/* Family description */}
+                {chipFamilyInfo && (
+                  <Text variant="bodyMedium" style={styles.chipFamilyDescription}>
+                    {chipFamilyInfo}
+                  </Text>
+                )}
+
+                {/* Detailed chip info */}
+                {chipInfo && (
+                  <>
+                    <Text variant="bodyMedium" style={styles.chipDescription}>
+                      {chipInfo.description}
+                    </Text>
+
+                    {chipInfo.memoryNote && (
+                      <View style={styles.chipInfoRow}>
+                        <Text variant="bodySmall" style={styles.chipInfoRowLabel}>
+                          Memory:
+                        </Text>
+                        <Text variant="bodySmall" style={styles.chipInfoRowValue}>
+                          {chipInfo.memoryNote}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.chipInfoRow}>
+                      <Text variant="bodySmall" style={styles.chipInfoRowLabel}>
+                        Security:
+                      </Text>
+                      <Text
+                        variant="bodySmall"
+                        style={[
+                          styles.chipInfoRowValue,
+                          {
+                            color:
+                              chipInfo.securityLevel === 'high'
+                                ? DTColors.modeSuccess
+                                : chipInfo.securityLevel === 'medium'
+                                  ? DTColors.modeEmphasis
+                                  : DTColors.modeWarning,
+                          },
+                        ]}>
+                        {chipInfo.securityLevel.toUpperCase()}
+                      </Text>
+                    </View>
+
+                    <Text variant="bodySmall" style={styles.securityNote}>
+                      {getSecurityLevelDescription(chipInfo.securityLevel)}
+                    </Text>
+
+                    {chipInfo.commonUses.length > 0 && (
+                      <>
+                        <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
+                          COMMON USES
+                        </Text>
+                        {chipInfo.commonUses.map((use, idx) => (
+                          <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
+                            • {use}
+                          </Text>
+                        ))}
+                      </>
+                    )}
+
+                    {chipInfo.capabilities.length > 0 && (
+                      <>
+                        <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
+                          CAPABILITIES
+                        </Text>
+                        {chipInfo.capabilities.map((cap, idx) => (
+                          <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
+                            • {cap}
+                          </Text>
+                        ))}
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </Surface>
+        )}
+
+        {/* Product Matches Card - hide for payment devices */}
+        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
           <Surface style={styles.productsCard} elevation={1}>
             <Text variant="labelLarge" style={styles.productsLabel}>
               COMPATIBLE IMPLANTS
             </Text>
-            <Divider style={[styles.divider, {backgroundColor: DTColors.modeEmphasis}]} />
+            <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
 
             <Text variant="bodyMedium" style={styles.matchSummary}>
               {getMatchSummary(matchResult, transponder.chipName)}
@@ -171,7 +309,7 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
             <Text variant="labelLarge" style={styles.noMatchLabel}>
               NO DIRECT MATCH
             </Text>
-            <Divider style={[styles.divider, {backgroundColor: DTColors.modeOther}]} />
+            <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
 
             <Text variant="bodyMedium" style={styles.noMatchText}>
               {getMatchSummary(matchResult, transponder.chipName)}
@@ -198,7 +336,7 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
             <Text variant="labelLarge" style={styles.sakSwapLabel}>
               SAK SWAP DETECTED
             </Text>
-            <Divider style={[styles.divider, {backgroundColor: DTColors.modeEmphasis}]} />
+            <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
 
             <Text variant="bodyLarge" style={styles.sakSwapType}>
               {transponder.sakSwapInfo.swapType?.replace(/_/g, ' ').toUpperCase()}
@@ -293,22 +431,25 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
             <Text variant="labelLarge" style={styles.noDetectionLabel}>
               CHIP NOT IDENTIFIED
             </Text>
-            <Divider style={[styles.divider, {backgroundColor: DTColors.modeWarning}]} />
+            <Divider style={[styles.divider, { backgroundColor: DTColors.modeWarning }]} />
             <Text variant="bodyMedium" style={styles.noDetectionText}>
               Unable to identify this chip type. It may be unsupported or require advanced detection.
             </Text>
           </Surface>
         )}
 
-        {/* Conversion Service Card - show when recommended */}
-        {(matchResult?.conversionRecommended || !transponder) && (
+        {/* Conversion Service Card - show for payment devices, or when recommended and not a real implant */}
+        {(transponder?.implantName?.includes('Payment Card') ||
+          ((matchResult?.conversionRecommended || !transponder) && !transponder?.implantName)) && (
           <Surface style={styles.conversionCard} elevation={1}>
             <Text variant="bodyMedium" style={styles.conversionText}>
-              {!transponder
-                ? 'Unknown chip? Our conversion service can help.'
-                : matchResult?.isCloneable === false
-                  ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
-                  : "No direct product match found. Our conversion service can help."}
+              {transponder?.implantName?.includes('Payment Card')
+                ? "Payment cards can't be converted to implants due to security restrictions. Our conversion service can help you find an implant that works with your use case."
+                : !transponder
+                  ? 'Unknown chip? Our conversion service can help.'
+                  : matchResult?.isCloneable === false
+                    ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
+                    : "No direct product match found. Our conversion service can help."}
             </Text>
             <Button
               mode="outlined"
@@ -536,7 +677,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: DTColors.modeNormal,
-    height: 24,
+    height: 35,
   },
   formFactorChipText: {
     color: DTColors.modeNormal,
@@ -644,5 +785,110 @@ const styles = StyleSheet.create({
   homeLabel: {
     color: DTColors.light,
     opacity: 0.6,
+  },
+  // Chip Info Card
+  chipInfoCard: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeOther,
+    padding: 20,
+    marginBottom: 20,
+  },
+  chipInfoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  chipInfoLabel: {
+    color: DTColors.modeOther,
+    letterSpacing: 2,
+  },
+  expandIndicator: {
+    color: DTColors.modeOther,
+    fontSize: 12,
+  },
+  chipFamilyDescription: {
+    color: DTColors.light,
+    opacity: 0.8,
+    marginBottom: 12,
+    lineHeight: 22,
+  },
+  chipDescription: {
+    color: DTColors.light,
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  chipInfoRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  chipInfoRowLabel: {
+    color: DTColors.light,
+    opacity: 0.6,
+    marginRight: 8,
+  },
+  chipInfoRowValue: {
+    color: DTColors.light,
+  },
+  securityNote: {
+    color: DTColors.light,
+    opacity: 0.5,
+    fontStyle: 'italic',
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  chipInfoSectionLabel: {
+    color: DTColors.modeOther,
+    letterSpacing: 1,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  chipInfoListItem: {
+    color: DTColors.light,
+    opacity: 0.8,
+    marginBottom: 4,
+  },
+  // Implant name styles
+  implantNameRow: {
+    backgroundColor: 'rgba(0, 255, 0, 0.1)',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeSuccess,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  implantNameLabel: {
+    color: DTColors.modeSuccess,
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  implantNameValue: {
+    color: DTColors.modeSuccess,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  // Payment device styles
+  paymentDeviceRow: {
+    backgroundColor: 'rgba(255, 255, 0, 0.1)',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeEmphasis,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  paymentDeviceLabel: {
+    color: DTColors.modeEmphasis,
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  paymentDeviceValue: {
+    color: DTColors.modeEmphasis,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
 });

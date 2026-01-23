@@ -5,7 +5,7 @@
  */
 
 import {ChipType, NtagVersionInfo} from '../../types/detection';
-import {NTAG_GET_VERSION, sendType2Command} from '../nfc/commands';
+import {NTAG_GET_VERSION, sendType2Command, ntagRead} from '../nfc/commands';
 
 /**
  * GET_VERSION response structure (same for NTAG and Ultralight):
@@ -302,4 +302,134 @@ export function formatNtagVersionInfo(info: NtagVersionInfo): string {
     `Version: ${info.majorVersion}.${info.minorVersion}`,
     `Storage: 0x${info.storageSize.toString(16)}`,
   ].join(', ');
+}
+
+/**
+ * Known Dangerous Things implant names that may be written to Type 2 tag memory
+ * Looking for 4+ character partial matches (case-insensitive)
+ * Note: Only includes Type 2 (NTAG/Ultralight) based implants
+ */
+const KNOWN_IMPLANT_NAMES = [
+  // X-Series NTAG implants
+  'xNT',
+  'xSIID',
+  'NExT',
+  // Bioresin NTAG implants
+  'dNExT',
+  // Flex NTAG implants
+  'flexNT',
+  // Generic identifiers
+  'VivoKey',
+  'Dangerous',
+  'DNGRTHNG',
+  'DNGR',
+];
+
+/**
+ * Memory layout for NTAG chips
+ * Last user page = total pages - config pages - 1
+ */
+const NTAG_MEMORY_LAYOUT: Partial<Record<ChipType, {totalPages: number; lastUserPage: number}>> = {
+  [ChipType.NTAG213]: {totalPages: 45, lastUserPage: 39},
+  [ChipType.NTAG215]: {totalPages: 135, lastUserPage: 129},
+  [ChipType.NTAG216]: {totalPages: 231, lastUserPage: 225},
+  [ChipType.NTAG_I2C_1K]: {totalPages: 231, lastUserPage: 225},
+  [ChipType.NTAG_I2C_2K]: {totalPages: 485, lastUserPage: 479},
+  [ChipType.NTAG_I2C_PLUS_1K]: {totalPages: 231, lastUserPage: 225},
+  [ChipType.NTAG_I2C_PLUS_2K]: {totalPages: 485, lastUserPage: 479},
+};
+
+/**
+ * Convert bytes to ASCII string, filtering non-printable characters
+ */
+function bytesToAscii(bytes: number[]): string {
+  return bytes
+    .filter(b => b >= 0x20 && b <= 0x7e) // Printable ASCII only
+    .map(b => String.fromCharCode(b))
+    .join('');
+}
+
+/**
+ * Result of implant name detection
+ */
+export interface ImplantNameResult {
+  found: boolean;
+  name?: string;
+  rawBytes?: number[];
+}
+
+/**
+ * Check memory pages for implant name (4+ character partial match)
+ * Reads the last 16 bytes (4 pages) of user memory where implant names are typically stored
+ */
+export async function detectImplantNameInMemory(
+  chipType: ChipType,
+): Promise<ImplantNameResult> {
+  const layout = NTAG_MEMORY_LAYOUT[chipType];
+  if (!layout) {
+    console.log(`[NTAG] No memory layout for chip type: ${chipType}`);
+    return {found: false};
+  }
+
+  try {
+    // Read last 4 pages (16 bytes) - where implant names are typically stored
+    // For NTAG216, this is pages 222-225 (lastUserPage - 3 to lastUserPage)
+    const startPage = layout.lastUserPage - 3;
+
+    console.log(
+      `[NTAG] Reading pages ${startPage}-${layout.lastUserPage} (0x${startPage.toString(16)}-0x${layout.lastUserPage.toString(16)}) for implant name`,
+    );
+
+    // READ command returns 4 pages (16 bytes) starting at the given page
+    const response = await sendType2Command(ntagRead(startPage));
+
+    console.log(
+      `[NTAG] Read ${response.length} bytes:`,
+      response.map(b => b.toString(16).padStart(2, '0')).join(' '),
+    );
+
+    const asciiStr = bytesToAscii(response);
+    console.log(`[NTAG] ASCII: "${asciiStr}"`);
+
+    // Look for 4+ character matches (case-insensitive)
+    const upperAscii = asciiStr.toUpperCase();
+    for (const name of KNOWN_IMPLANT_NAMES) {
+      if (name.length >= 4 && upperAscii.includes(name.toUpperCase())) {
+        console.log(`[NTAG] Found implant name: ${name}`);
+        return {
+          found: true,
+          name,
+          rawBytes: response,
+        };
+      }
+    }
+
+    // If not found in last 4 pages, try the 4 pages before that
+    const earlierStartPage = Math.max(4, startPage - 4);
+    if (earlierStartPage < startPage) {
+      console.log(
+        `[NTAG] Trying earlier pages ${earlierStartPage}-${earlierStartPage + 3}`,
+      );
+      const earlierResponse = await sendType2Command(ntagRead(earlierStartPage));
+      const earlierAscii = bytesToAscii(earlierResponse);
+      const upperEarlierAscii = earlierAscii.toUpperCase();
+
+      for (const name of KNOWN_IMPLANT_NAMES) {
+        if (name.length >= 4 && upperEarlierAscii.includes(name.toUpperCase())) {
+          console.log(`[NTAG] Found implant name in earlier pages: ${name}`);
+          return {
+            found: true,
+            name,
+            rawBytes: earlierResponse,
+          };
+        }
+      }
+    }
+
+    console.log('[NTAG] No implant name found in memory');
+    return {found: false, rawBytes: response};
+  } catch (error) {
+    console.warn('[NTAG] Failed to read memory for implant name:', error);
+    return {found: false};
+  }
 }

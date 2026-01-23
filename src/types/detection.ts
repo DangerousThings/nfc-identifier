@@ -190,6 +190,9 @@ export interface Transponder {
   /** SAK swap detection results */
   sakSwapInfo?: SakSwapInfo;
 
+  /** Implant name found in memory (for Type 2 tags) */
+  implantName?: string;
+
   /** Detection confidence level */
   confidence: 'high' | 'medium' | 'low';
 

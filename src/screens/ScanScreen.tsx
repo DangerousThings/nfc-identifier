@@ -1,10 +1,11 @@
 import React, {useCallback, useEffect} from 'react';
 import {StyleSheet, View, Platform} from 'react-native';
-import {Button, Text, ActivityIndicator} from 'react-native-paper';
+import {Button, Text} from 'react-native-paper';
 import type {ScanScreenProps} from '../types/navigation';
 import {DTColors} from '../theme';
 import {useScan} from '../hooks';
 import {getScanInstructions} from '../services/nfc';
+import {ScanAnimation} from '../components';
 
 export function ScanScreen({navigation}: ScanScreenProps) {
   const {
@@ -13,6 +14,7 @@ export function ScanScreen({navigation}: ScanScreenProps) {
     transponder,
     error,
     nfcStatus,
+    scanProgress,
     startScan,
     cancelScan,
     openSettings,
@@ -56,16 +58,46 @@ export function ScanScreen({navigation}: ScanScreenProps) {
     startScan();
   }, [startScan]);
 
+  // Get contextual error hints based on error type
+  const getErrorHint = () => {
+    if (!error?.type) return null;
+
+    switch (error.type) {
+      case 'TAG_LOST':
+        return 'Hold the tag steady against the back of your phone until scanning completes.';
+      case 'TIMEOUT':
+        return 'The tag took too long to respond. Try repositioning it closer to the NFC reader.';
+      case 'SCAN_CANCELLED':
+        return null; // User cancelled, no hint needed
+      case 'NFC_NOT_ENABLED':
+        return Platform.OS === 'ios'
+          ? 'Go to Settings > NFC to enable NFC scanning.'
+          : 'Enable NFC in your device settings.';
+      case 'PERMISSION_DENIED':
+        return 'NFC permission was denied. Please grant NFC access in your device settings.';
+      case 'UNKNOWN':
+        return 'An unexpected error occurred. Make sure the tag is positioned correctly and try again.';
+      default:
+        return 'Make sure the tag is positioned correctly and try again.';
+    }
+  };
+
   // Render NFC not supported state
   if (!nfcStatus.isSupported && state !== 'scanning') {
     return (
       <View style={styles.container}>
         <View style={styles.content}>
+          <View style={styles.errorIcon}>
+            <Text style={styles.errorIconText}>✕</Text>
+          </View>
           <Text variant="headlineMedium" style={styles.errorText}>
             NFC NOT SUPPORTED
           </Text>
           <Text variant="bodyLarge" style={styles.errorMessage}>
-            This device does not support NFC scanning.
+            This device does not have NFC hardware.
+          </Text>
+          <Text variant="bodyMedium" style={styles.hintText}>
+            NFC scanning requires a device with NFC capability. Most modern smartphones have NFC, but it may need to be enabled in settings.
           </Text>
         </View>
         <View style={styles.footer}>
@@ -85,18 +117,26 @@ export function ScanScreen({navigation}: ScanScreenProps) {
     return (
       <View style={styles.container}>
         <View style={styles.content}>
+          <View style={styles.warningIcon}>
+            <Text style={styles.warningIconText}>⚡</Text>
+          </View>
           <Text variant="headlineMedium" style={styles.warningText}>
             NFC DISABLED
           </Text>
           <Text variant="bodyLarge" style={styles.errorMessage}>
-            Please enable NFC in your device settings to scan tags.
+            NFC is turned off on this device.
+          </Text>
+          <Text variant="bodyMedium" style={styles.hintText}>
+            {Platform.OS === 'ios'
+              ? 'Go to Settings and enable NFC scanning to continue.'
+              : 'Enable NFC in your device settings to scan tags.'}
           </Text>
           {Platform.OS === 'android' && (
             <Button
               mode="outlined"
               onPress={openSettings}
               style={styles.settingsButton}
-              labelStyle={styles.buttonLabel}>
+              labelStyle={styles.settingsButtonLabel}>
               OPEN SETTINGS
             </Button>
           )}
@@ -124,34 +164,41 @@ export function ScanScreen({navigation}: ScanScreenProps) {
       <View style={styles.content}>
         {state === 'scanning' && (
           <>
-            <View style={styles.scanIndicator}>
-              <ActivityIndicator
-                size="large"
-                color={DTColors.modeNormal}
-                style={styles.spinner}
-              />
-              <View style={styles.pulseRing} />
-            </View>
+            <ScanAnimation isActive={true} size={180} />
             <Text variant="headlineMedium" style={styles.scanningText}>
               SCANNING
             </Text>
             <Text variant="bodyLarge" style={styles.instructionText}>
               {getScanInstructions()}
             </Text>
+            {scanProgress && scanProgress.current > 1 && (
+              <Text variant="bodySmall" style={styles.progressText}>
+                {scanProgress.step}
+              </Text>
+            )}
           </>
         )}
 
         {state === 'error' && (
           <>
+            <View style={styles.errorIcon}>
+              <Text style={styles.errorIconText}>!</Text>
+            </View>
             <Text variant="headlineMedium" style={styles.errorText}>
-              SCAN FAILED
+              {error?.type === 'TAG_LOST'
+                ? 'TAG LOST'
+                : error?.type === 'TIMEOUT'
+                  ? 'TIMEOUT'
+                  : error?.type === 'PERMISSION_DENIED'
+                    ? 'PERMISSION DENIED'
+                    : 'SCAN FAILED'}
             </Text>
             <Text variant="bodyLarge" style={styles.errorMessage}>
               {error?.message || 'Unable to read NFC tag'}
             </Text>
-            {error?.type === 'TAG_LOST' && (
+            {getErrorHint() && (
               <Text variant="bodyMedium" style={styles.hintText}>
-                Hold the tag steady until the scan completes
+                {getErrorHint()}
               </Text>
             )}
             <Button
@@ -181,10 +228,10 @@ export function ScanScreen({navigation}: ScanScreenProps) {
 
         {state === 'processing' && (
           <>
-            <ActivityIndicator
-              size="large"
+            <ScanAnimation
+              isActive={true}
+              size={180}
               color={DTColors.modeEmphasis}
-              style={styles.processingSpinner}
             />
             <Text variant="headlineMedium" style={styles.processingText}>
               IDENTIFYING
@@ -219,27 +266,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scanIndicator: {
-    width: 150,
-    height: 150,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  spinner: {
-    position: 'absolute',
-  },
-  pulseRing: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 2,
-    borderColor: DTColors.modeNormal,
-    opacity: 0.3,
-  },
   scanningText: {
     color: DTColors.modeNormal,
     letterSpacing: 4,
+    marginTop: 32,
     marginBottom: 16,
   },
   instructionText: {
@@ -248,10 +278,46 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
   },
+  progressText: {
+    color: DTColors.modeNormal,
+    opacity: 0.7,
+    marginTop: 16,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  errorIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: DTColors.modeWarning,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  errorIconText: {
+    color: DTColors.modeWarning,
+    fontSize: 48,
+    fontWeight: 'bold',
+  },
   errorText: {
     color: DTColors.modeWarning,
     letterSpacing: 2,
     marginBottom: 16,
+  },
+  warningIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: DTColors.modeEmphasis,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  warningIconText: {
+    color: DTColors.modeEmphasis,
+    fontSize: 36,
   },
   warningText: {
     color: DTColors.modeEmphasis,
@@ -282,6 +348,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     marginTop: 16,
   },
+  settingsButtonLabel: {
+    color: DTColors.modeEmphasis,
+    letterSpacing: 2,
+  },
   readyText: {
     color: DTColors.modeEmphasis,
     letterSpacing: 2,
@@ -295,12 +365,10 @@ const styles = StyleSheet.create({
     color: DTColors.modeNormal,
     letterSpacing: 2,
   },
-  processingSpinner: {
-    marginBottom: 24,
-  },
   processingText: {
     color: DTColors.modeEmphasis,
     letterSpacing: 4,
+    marginTop: 32,
   },
   detectingHint: {
     color: DTColors.light,

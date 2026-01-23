@@ -10,7 +10,7 @@
 import {Platform} from 'react-native';
 import NfcManager from 'react-native-nfc-manager';
 import {ChipType} from '../../types/detection';
-import {getIso15693SystemInfo} from '../nfc/commands';
+import {getIso15693SystemInfo, transceiveNfcV, iso15693ReadSingleBlock} from '../nfc/commands';
 
 /**
  * NXP ICODE IC manufacturer code
@@ -191,12 +191,12 @@ function getIcodeTypeFromIcReference(icRef: number): ChipType | null {
     return ChipType.ICODE_DNA;
   }
 
-  // High IC references (0x80-0x8F) might be older SLIX or special variants
+  // High IC references (0x80-0x8F) - unknown, don't guess
   if (icRef >= 0x80 && icRef < 0x90) {
     console.log(
-      `[ISO15693] High IC ref 0x${icRef.toString(16)}, treating as SLIX (legacy/special)`,
+      `[ISO15693] High IC ref 0x${icRef.toString(16)} - unknown variant`,
     );
-    return ChipType.SLIX;
+    return null;
   }
 
   console.log(
@@ -431,10 +431,10 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
         }
 
         // Got manufacturer NXP but couldn't determine exact variant
-        // Default to SLIX as it's the most common NXP ISO 15693 chip
+        // Don't assume SLIX - return unknown with NXP manufacturer info
         return {
           success: true,
-          chipType: ChipType.SLIX,
+          chipType: ChipType.ISO15693_UNKNOWN,
           uid,
           icManufacturer: icManufacturer ?? NXP_IC_MFG_CODE,
           blockSize: sysInfo.blockSize,
@@ -463,25 +463,27 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
       console.log('[ISO15693] NXP manufacturer detected');
       // Check if we got IC reference from UID parsing
       if (uidIcReference !== undefined) {
-        const chipType = getIcodeTypeFromIcReference(uidIcReference) || ChipType.SLIX;
-        console.log('[ISO15693] UID-based detection result:', chipType);
-
-        return {
-          success: true,
-          chipType,
-          uid,
-          icManufacturer,
-          icReference: uidIcReference,
-        };
+        const chipType = getIcodeTypeFromIcReference(uidIcReference);
+        if (chipType) {
+          console.log('[ISO15693] UID-based detection result:', chipType);
+          return {
+            success: true,
+            chipType,
+            uid,
+            icManufacturer,
+            icReference: uidIcReference,
+          };
+        }
       }
 
-      // NXP but no IC reference - assume SLIX (most common)
-      console.log('[ISO15693] NXP but no IC reference, defaulting to SLIX');
+      // NXP but couldn't determine exact variant - return unknown with NXP info
+      console.log('[ISO15693] NXP but could not determine specific chip type');
       return {
         success: true,
-        chipType: ChipType.SLIX,
+        chipType: ChipType.ISO15693_UNKNOWN,
         uid,
         icManufacturer,
+        icReference: uidIcReference,
       };
     }
 
@@ -745,4 +747,104 @@ export function getIcManufacturerName(code: number): string {
   };
 
   return manufacturers[code] || `Unknown (0x${code.toString(16)})`;
+}
+
+/**
+ * Result of Spark implant detection
+ */
+export interface SparkDetectionResult {
+  found: boolean;
+  name?: string;
+  url?: string;
+}
+
+/**
+ * Detect Spark implant by reading NDEF from ISO 15693 tag
+ * Spark implants have a URI record pointing to vivokey.co/$code
+ *
+ * @param chipType - The detected chip type (used to determine Spark 1 vs 2)
+ */
+export async function detectSparkImplant(
+  chipType: ChipType,
+): Promise<SparkDetectionResult> {
+  try {
+    console.log('[ISO15693] Checking for Spark implant NDEF...');
+
+    // Read first few blocks to find NDEF data
+    // ISO 15693 NDEF layout: Block 0 = CC (Capability Container), Blocks 1+ = NDEF message
+    const ndefBytes: number[] = [];
+
+    // Read blocks 0-7 (typically enough for a short NDEF URI)
+    for (let block = 0; block < 8; block++) {
+      try {
+        const response = await transceiveNfcV(iso15693ReadSingleBlock(block));
+        // Response format: [flags] [data...]
+        // Skip first byte (flags) if present
+        if (response.length > 1 && (response[0] & 0x01) === 0) {
+          // No error, data follows
+          ndefBytes.push(...response.slice(1));
+        } else if (response.length >= 4) {
+          // Some readers don't include flags
+          ndefBytes.push(...response);
+        }
+      } catch (e) {
+        console.log(`[ISO15693] Block ${block} read failed:`, e);
+        break;
+      }
+    }
+
+    if (ndefBytes.length === 0) {
+      console.log('[ISO15693] No NDEF data read');
+      return {found: false};
+    }
+
+    console.log(
+      '[ISO15693] Read NDEF bytes:',
+      ndefBytes.map(b => b.toString(16).padStart(2, '0')).join(' '),
+    );
+
+    // Convert to ASCII and look for vivokey.co pattern
+    const asciiStr = ndefBytes
+      .filter(b => b >= 0x20 && b <= 0x7e)
+      .map(b => String.fromCharCode(b))
+      .join('');
+
+    console.log('[ISO15693] ASCII content:', asciiStr);
+
+    // Check for vivokey.co URL pattern
+    const vivokeyMatch = asciiStr.match(/vivokey\.co\/([A-Za-z0-9]+)/i);
+    if (vivokeyMatch) {
+      const code = vivokeyMatch[1];
+      const url = `https://vivokey.co/${code}`;
+      console.log('[ISO15693] Found Spark URL:', url);
+
+      // Determine Spark version based on chip type
+      // SLIX = Spark 1, NTAG 424 DNA = Spark 2
+      let sparkName: string;
+      if (
+        chipType === ChipType.SLIX ||
+        chipType === ChipType.SLIX_S ||
+        chipType === ChipType.SLIX_L ||
+        chipType === ChipType.SLIX2
+      ) {
+        sparkName = 'Spark 1';
+      } else if (chipType === ChipType.NTAG424_DNA) {
+        sparkName = 'Spark 2';
+      } else {
+        sparkName = 'Spark';
+      }
+
+      return {
+        found: true,
+        name: sparkName,
+        url,
+      };
+    }
+
+    console.log('[ISO15693] No vivokey.co URL found');
+    return {found: false};
+  } catch (error) {
+    console.warn('[ISO15693] Spark detection failed:', error);
+    return {found: false};
+  }
 }

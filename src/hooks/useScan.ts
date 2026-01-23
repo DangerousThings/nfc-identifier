@@ -9,6 +9,16 @@ import {detectChip} from '../services/detection';
 import type {ScanState, RawTagData, ScanError, NFCStatus} from '../types/nfc';
 import type {Transponder} from '../types/detection';
 
+/** Progress update during scanning */
+export interface ScanProgress {
+  /** Current step description */
+  step: string;
+  /** Step number (1-indexed) */
+  current: number;
+  /** Total steps (if known) */
+  total?: number;
+}
+
 export interface UseScanResult {
   /** Current scan state */
   state: ScanState;
@@ -20,6 +30,8 @@ export interface UseScanResult {
   error: ScanError | null;
   /** NFC status (supported and enabled) */
   nfcStatus: NFCStatus;
+  /** Current scan progress (during 'scanning' state) */
+  scanProgress: ScanProgress | null;
   /** Start scanning for a tag */
   startScan: () => Promise<void>;
   /** Cancel ongoing scan */
@@ -42,6 +54,7 @@ export function useScan(): UseScanResult {
     isSupported: false,
     isEnabled: false,
   });
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
 
   // Track if component is mounted to prevent state updates after unmount
   const isMounted = useRef(true);
@@ -83,6 +96,7 @@ export function useScan(): UseScanResult {
     setTag(null);
     setTransponder(null);
     setError(null);
+    setScanProgress({step: 'Waiting for tag...', current: 1});
 
     try {
       // Check NFC status first
@@ -115,8 +129,23 @@ export function useScan(): UseScanResult {
 
       // Perform scan with detection in one session
       const result = await nfcManager.scanWithDetection(async tagData => {
+        // Update progress: tag detected
+        if (isMounted.current) {
+          setScanProgress({step: 'Tag detected, identifying chip...', current: 2});
+        }
+
         // Run chip detection while NFC session is still active
-        const detectionResult = await detectChip(tagData);
+        const detectionResult = await detectChip(tagData, step => {
+          // Progress callback from detection
+          if (isMounted.current) {
+            setScanProgress({step, current: 3});
+          }
+        });
+
+        if (isMounted.current) {
+          setScanProgress({step: 'Detection complete', current: 4});
+        }
+
         return detectionResult.success ? detectionResult.transponder : null;
       });
 
@@ -175,6 +204,7 @@ export function useScan(): UseScanResult {
     setTag(null);
     setTransponder(null);
     setError(null);
+    setScanProgress(null);
   }, []);
 
   // Open device NFC settings
@@ -193,6 +223,7 @@ export function useScan(): UseScanResult {
     transponder,
     error,
     nfcStatus,
+    scanProgress,
     startScan,
     cancelScan,
     reset,
