@@ -29,12 +29,26 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     return getChipFamilyInfo(getChipFamily(transponder.type));
   }, [transponder]);
 
+  // Build URL with UTM tracking parameters for analytics
+  const buildTrackedUrl = (baseUrl: string, content?: string) => {
+    const url = new URL(baseUrl);
+    url.searchParams.set('utm_source', 'dt_nfc_identifier');
+    url.searchParams.set('utm_medium', 'app');
+    url.searchParams.set('utm_campaign', 'chip_scan');
+    if (content) {
+      url.searchParams.set('utm_content', content);
+    }
+    return url.toString();
+  };
+
   const handleConversionLink = () => {
-    Linking.openURL(matchResult?.conversionUrl || 'https://dngr.us/conversion');
+    const baseUrl = matchResult?.conversionUrl || 'https://dngr.us/conversion';
+    const content = transponder?.chipName || transponder?.type;
+    Linking.openURL(buildTrackedUrl(baseUrl, content));
   };
 
   const handleProductLink = (product: Product) => {
-    Linking.openURL(product.url);
+    Linking.openURL(buildTrackedUrl(product.url, product.name));
   };
 
   // Determine card colors based on detection
