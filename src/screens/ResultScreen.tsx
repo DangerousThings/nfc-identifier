@@ -1,22 +1,124 @@
 import React from 'react';
 import {StyleSheet, View, ScrollView, Linking} from 'react-native';
-import {Button, Text, Surface, Divider} from 'react-native-paper';
+import {Button, Text, Surface, Divider, Chip} from 'react-native-paper';
 import type {ResultScreenProps} from '../types/navigation';
 import {DTColors} from '../theme';
 
 export function ResultScreen({route, navigation}: ResultScreenProps) {
-  const {tagData} = route.params;
+  const {tagData, transponder} = route.params;
 
   const handleConversionLink = () => {
     Linking.openURL('https://dngr.us/conversion');
   };
 
+  // Determine card colors based on detection
+  const getCloneabilityColor = () => {
+    if (!transponder) return DTColors.light;
+    return transponder.isCloneable ? DTColors.modeSuccess : DTColors.modeWarning;
+  };
+
+  const getConfidenceLabel = () => {
+    if (!transponder) return null;
+    const colors = {
+      high: DTColors.modeSuccess,
+      medium: DTColors.modeEmphasis,
+      low: DTColors.modeWarning,
+    };
+    return {color: colors[transponder.confidence], label: `${transponder.confidence.toUpperCase()} CONFIDENCE`};
+  };
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
+        {/* Chip Identification Card */}
+        {transponder && (
+          <Surface style={styles.identificationCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.identificationLabel}>
+              CHIP IDENTIFIED
+            </Text>
+            <Divider style={styles.divider} />
+
+            <Text variant="headlineMedium" style={styles.chipName}>
+              {transponder.chipName}
+            </Text>
+
+            <View style={styles.chipMeta}>
+              <Chip
+                style={[styles.familyChip, {borderColor: DTColors.modeNormal}]}
+                textStyle={styles.familyChipText}>
+                {transponder.family}
+              </Chip>
+              {getConfidenceLabel() && (
+                <Chip
+                  style={[styles.confidenceChip, {borderColor: getConfidenceLabel()!.color}]}
+                  textStyle={[styles.confidenceChipText, {color: getConfidenceLabel()!.color}]}>
+                  {getConfidenceLabel()!.label}
+                </Chip>
+              )}
+            </View>
+
+            {transponder.memorySize && (
+              <View style={styles.detailRow}>
+                <Text variant="bodyMedium" style={styles.detailLabel}>
+                  MEMORY
+                </Text>
+                <Text variant="bodyLarge" style={styles.detailValue}>
+                  {transponder.memorySize} bytes
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.detailRow}>
+              <Text variant="bodyMedium" style={styles.detailLabel}>
+                CLONEABLE
+              </Text>
+              <Text
+                variant="bodyLarge"
+                style={[styles.detailValue, {color: getCloneabilityColor()}]}>
+                {transponder.isCloneable ? 'YES' : 'NO'}
+              </Text>
+            </View>
+
+            {transponder.cloneabilityNote && (
+              <Text variant="bodySmall" style={styles.cloneabilityNote}>
+                {transponder.cloneabilityNote}
+              </Text>
+            )}
+          </Surface>
+        )}
+
+        {/* SAK Swap Detection Card */}
+        {transponder?.sakSwapInfo?.hasSakSwap && (
+          <Surface style={styles.sakSwapCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.sakSwapLabel}>
+              SAK SWAP DETECTED
+            </Text>
+            <Divider style={[styles.divider, {backgroundColor: DTColors.modeEmphasis}]} />
+
+            <Text variant="bodyLarge" style={styles.sakSwapType}>
+              {transponder.sakSwapInfo.swapType?.replace(/_/g, ' ').toUpperCase()}
+            </Text>
+
+            <Text variant="bodyMedium" style={styles.sakSwapDescription}>
+              {transponder.sakSwapInfo.description}
+            </Text>
+
+            {transponder.sakSwapInfo.notes && transponder.sakSwapInfo.notes.length > 0 && (
+              <View style={styles.sakSwapNotes}>
+                {transponder.sakSwapInfo.notes.map((note, index) => (
+                  <Text key={index} variant="bodySmall" style={styles.sakSwapNote}>
+                    • {note}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </Surface>
+        )}
+
+        {/* Raw Tag Data Card */}
         <Surface style={styles.resultCard} elevation={1}>
           <Text variant="labelLarge" style={styles.cardLabel}>
-            TAG DETECTED
+            RAW TAG DATA
           </Text>
           <Divider style={styles.divider} />
 
@@ -80,35 +182,36 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
           )}
         </Surface>
 
-        <Surface style={styles.matchCard} elevation={1}>
-          <Text variant="labelLarge" style={styles.matchLabel}>
-            COMPATIBLE IMPLANTS
-          </Text>
-          <Divider style={styles.divider} />
+        {/* No Detection Card (fallback) */}
+        {!transponder && (
+          <Surface style={styles.noDetectionCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.noDetectionLabel}>
+              CHIP NOT IDENTIFIED
+            </Text>
+            <Divider style={[styles.divider, {backgroundColor: DTColors.modeWarning}]} />
+            <Text variant="bodyMedium" style={styles.noDetectionText}>
+              Unable to identify this chip type. It may be unsupported or require advanced detection.
+            </Text>
+          </Surface>
+        )}
 
-          <Text variant="bodyLarge" style={styles.placeholderText}>
-            Detection coming in Phase 3-5
-          </Text>
+        {/* Conversion Service Card - only show if chip is NOT cloneable */}
+        {(!transponder || !transponder.isCloneable) && (
+          <Surface style={styles.conversionCard} elevation={1}>
+            <Text variant="bodyMedium" style={styles.conversionText}>
+              Can't clone this chip? Check out our conversion service.
+            </Text>
+            <Button
+              mode="outlined"
+              onPress={handleConversionLink}
+              style={styles.conversionButton}
+              labelStyle={styles.conversionButtonLabel}>
+              CONVERSION SERVICE
+            </Button>
+          </Surface>
+        )}
 
-          <Text variant="bodyMedium" style={styles.hintText}>
-            Full chip identification and product matching will be implemented in
-            later phases.
-          </Text>
-        </Surface>
-
-        <Surface style={styles.conversionCard} elevation={1}>
-          <Text variant="bodyMedium" style={styles.conversionText}>
-            Can't find a match? Check out our conversion service.
-          </Text>
-          <Button
-            mode="outlined"
-            onPress={handleConversionLink}
-            style={styles.conversionButton}
-            labelStyle={styles.conversionButtonLabel}>
-            CONVERSION SERVICE
-          </Button>
-        </Surface>
-
+        {/* Action Buttons */}
         <View style={styles.actions}>
           <Button
             mode="outlined"
@@ -138,6 +241,98 @@ const styles = StyleSheet.create({
   content: {
     padding: 24,
   },
+  // Identification Card
+  identificationCard: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: DTColors.modeSuccess,
+    padding: 20,
+    marginBottom: 20,
+  },
+  identificationLabel: {
+    color: DTColors.modeSuccess,
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  chipName: {
+    color: DTColors.light,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  chipMeta: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  familyChip: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  familyChipText: {
+    color: DTColors.modeNormal,
+    fontSize: 12,
+  },
+  confidenceChip: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  confidenceChipText: {
+    fontSize: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  detailLabel: {
+    color: DTColors.light,
+    opacity: 0.6,
+    letterSpacing: 1,
+  },
+  detailValue: {
+    color: DTColors.light,
+  },
+  cloneabilityNote: {
+    color: DTColors.light,
+    opacity: 0.5,
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  // SAK Swap Card
+  sakSwapCard: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: DTColors.modeEmphasis,
+    padding: 20,
+    marginBottom: 20,
+  },
+  sakSwapLabel: {
+    color: DTColors.modeEmphasis,
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  sakSwapType: {
+    color: DTColors.modeEmphasis,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  sakSwapDescription: {
+    color: DTColors.light,
+    opacity: 0.9,
+    marginBottom: 12,
+  },
+  sakSwapNotes: {
+    marginTop: 8,
+  },
+  sakSwapNote: {
+    color: DTColors.light,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  // Raw Data Card
   resultCard: {
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
@@ -174,29 +369,25 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     fontStyle: 'italic',
   },
-  matchCard: {
+  // No Detection Card
+  noDetectionCard: {
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeEmphasis,
+    borderColor: DTColors.modeWarning,
     padding: 20,
     marginBottom: 20,
   },
-  matchLabel: {
-    color: DTColors.modeEmphasis,
+  noDetectionLabel: {
+    color: DTColors.modeWarning,
     letterSpacing: 2,
     marginBottom: 12,
   },
-  placeholderText: {
+  noDetectionText: {
     color: DTColors.light,
     opacity: 0.8,
-    marginBottom: 8,
   },
-  hintText: {
-    color: DTColors.light,
-    opacity: 0.5,
-    fontStyle: 'italic',
-  },
+  // Conversion Card
   conversionCard: {
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
@@ -220,6 +411,7 @@ const styles = StyleSheet.create({
     color: DTColors.modeOther,
     letterSpacing: 1,
   },
+  // Actions
   actions: {
     alignItems: 'center',
     gap: 16,

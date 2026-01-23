@@ -1,5 +1,6 @@
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {NfcTechType} from './nfc';
+import type {Transponder} from './detection';
 
 export type TagDataParam = {
   uid: string;
@@ -15,6 +16,7 @@ export type RootStackParamList = {
   Scan: undefined;
   Result: {
     tagData?: TagDataParam;
+    transponder?: Transponder;
   };
 };
 

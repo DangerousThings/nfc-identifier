@@ -10,6 +10,7 @@ export function ScanScreen({navigation}: ScanScreenProps) {
   const {
     state,
     tag,
+    transponder,
     error,
     nfcStatus,
     startScan,
@@ -17,7 +18,7 @@ export function ScanScreen({navigation}: ScanScreenProps) {
     openSettings,
   } = useScan();
 
-  // Navigate to results when scan succeeds
+  // Navigate to results when scan succeeds (detection happens in the hook)
   useEffect(() => {
     if (state === 'success' && tag) {
       navigation.replace('Result', {
@@ -29,9 +30,10 @@ export function ScanScreen({navigation}: ScanScreenProps) {
           ats: tag.ats,
           historicalBytes: tag.historicalBytes,
         },
+        transponder: transponder ?? undefined,
       });
     }
-  }, [state, tag, navigation]);
+  }, [state, tag, transponder, navigation]);
 
   // Auto-start scan when screen loads
   useEffect(() => {
@@ -185,7 +187,10 @@ export function ScanScreen({navigation}: ScanScreenProps) {
               style={styles.processingSpinner}
             />
             <Text variant="headlineMedium" style={styles.processingText}>
-              PROCESSING
+              IDENTIFYING
+            </Text>
+            <Text variant="bodyMedium" style={styles.detectingHint}>
+              Analyzing chip type...
             </Text>
           </>
         )}
@@ -296,6 +301,11 @@ const styles = StyleSheet.create({
   processingText: {
     color: DTColors.modeEmphasis,
     letterSpacing: 4,
+  },
+  detectingHint: {
+    color: DTColors.light,
+    opacity: 0.7,
+    marginTop: 12,
   },
   footer: {
     alignItems: 'center',

@@ -15,12 +15,32 @@ import type {
 
 /**
  * Convert byte array to hex string
+ * Handles number[], Uint8Array, string, or undefined
  */
-function bytesToHex(bytes: number[] | undefined): string {
-  if (!bytes || bytes.length === 0) {
+function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
+  if (!bytes) {
     return '';
   }
-  return bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+
+  // If already a string, assume it's hex and format it
+  if (typeof bytes === 'string') {
+    // Remove any existing separators and format consistently
+    const hex = bytes.replace(/[:\s-]/g, '').toUpperCase();
+    if (hex.length === 0) {
+      return '';
+    }
+    // Add colons between byte pairs
+    return hex.match(/.{1,2}/g)?.join(':') || hex;
+  }
+
+  // Convert array-like to actual array if needed (handles Uint8Array)
+  const byteArray = Array.from(bytes);
+
+  if (byteArray.length === 0) {
+    return '';
+  }
+
+  return byteArray.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
 }
 
 /**
@@ -32,6 +52,29 @@ function parseSak(tag: TagEvent): number | undefined {
   if (nfcA?.sak !== undefined) {
     return nfcA.sak;
   }
+
+  // iOS: CoreNFC doesn't directly expose SAK
+  // But we can infer ISO-DEP capability (SAK bit 5) from iso7816 presence
+  if (Platform.OS === 'ios') {
+    const iso7816 = (tag as any).iso7816;
+    const mifare = (tag as any).mifare;
+
+    // If iso7816 interface is available, the tag has ISO-DEP capability
+    // This corresponds to SAK bit 5 being set (value 0x20)
+    if (iso7816) {
+      // Check if also has MIFARE capability (could be DESFire or Plus)
+      if (mifare) {
+        return 0x20; // ISO-DEP capable (like DESFire)
+      }
+      return 0x20; // Pure ISO-DEP (like NTAG 424 DNA)
+    }
+
+    // If only MIFARE/NFC-A without iso7816, likely NTAG or Ultralight (SAK 0x00)
+    if (mifare) {
+      return 0x00;
+    }
+  }
+
   return undefined;
 }
 
@@ -76,14 +119,38 @@ function parseAts(tag: TagEvent): {ats?: string; historicalBytes?: string} {
  * Convert TagEvent to RawTagData
  */
 function tagEventToRawData(tag: TagEvent): RawTagData {
-  const techTypes = (tag.techTypes || []) as NfcTechType[];
-  const uid = tag.id ? bytesToHex(tag.id as unknown as number[]) : '';
+  let techTypes = (tag.techTypes || []) as NfcTechType[];
+  const uid = tag.id ? bytesToHex(tag.id as string | number[] | Uint8Array) : '';
   const sak = parseSak(tag);
   const atqa = parseAtqa(tag);
   const {ats, historicalBytes} = parseAts(tag);
 
   const isoDep = (tag as any).isoDep;
+  const iso7816 = (tag as any).iso7816;
   const maxTransceiveLength = isoDep?.maxTransceiveLength;
+
+  // On iOS, detect ISO-DEP capability from iso7816 property or tag type
+  // This ensures NTAG 424 DNA and DESFire are properly identified
+  if (Platform.OS === 'ios') {
+    // If iso7816 property exists, this is an ISO-DEP capable tag
+    if (iso7816 && !techTypes.some(t => t.includes('IsoDep'))) {
+      techTypes = [...techTypes, 'android.nfc.tech.IsoDep' as NfcTechType];
+    }
+    // Also check tag type for iOS
+    const tagType = (tag as any).type;
+    if (tagType && typeof tagType === 'string') {
+      if (tagType.includes('iso7816') || tagType.includes('IsoDep')) {
+        if (!techTypes.some(t => t.includes('IsoDep'))) {
+          techTypes = [...techTypes, 'android.nfc.tech.IsoDep' as NfcTechType];
+        }
+      }
+      if (tagType.includes('iso15693') || tagType.includes('NfcV')) {
+        if (!techTypes.some(t => t.includes('NfcV'))) {
+          techTypes = [...techTypes, 'android.nfc.tech.NfcV' as NfcTechType];
+        }
+      }
+    }
+  }
 
   return {
     uid,
@@ -191,8 +258,13 @@ class NFCManagerService {
   /**
    * Request NFC technology and scan for a tag
    * Returns raw tag data on success
+   *
+   * @param keepAlive - If true, don't release the NFC technology after scanning.
+   *                    Caller must call cancelScan() when done.
    */
-  async scanTag(): Promise<{tag?: RawTagData; error?: ScanError}> {
+  async scanTag(
+    keepAlive = false,
+  ): Promise<{tag?: RawTagData; error?: ScanError}> {
     try {
       // Ensure initialized
       if (!this.initialized) {
@@ -220,17 +292,21 @@ class NFCManagerService {
 
       // Request technology based on platform
       if (Platform.OS === 'ios') {
-        // iOS: Use MifareIOS for broadest compatibility with ISO 14443 tags
+        // iOS: Use MifareIOS which works for NFC-A tags including ISO-DEP
+        // The iso7816HandlerIOS is used separately for ISO-DEP commands
         await NfcManager.requestTechnology(NfcTech.MifareIOS, {
           alertMessage: 'Hold your NFC tag near the top of your iPhone',
         });
       } else {
         // Android: Request multiple technologies for best detection
+        // IMPORTANT: IsoDep MUST be first so ISO-DEP capable tags (DESFire, NTAG 424 DNA)
+        // connect via ISO-DEP rather than NfcA. When NfcA connects first, isoDepHandler
+        // won't work because the wrong technology is active.
         await NfcManager.requestTechnology([
-          NfcTech.NfcA,
-          NfcTech.NfcB,
-          NfcTech.NfcV,
           NfcTech.IsoDep,
+          NfcTech.NfcA,
+          NfcTech.NfcV,
+          NfcTech.NfcB,
           NfcTech.MifareClassic,
         ]);
       }
@@ -238,6 +314,9 @@ class NFCManagerService {
       // Get the tag
       const tag = await NfcManager.getTag();
       if (!tag) {
+        if (!keepAlive) {
+          await this.cancelScan();
+        }
         return {
           error: createScanError('UNKNOWN', 'No tag data received'),
         };
@@ -247,7 +326,39 @@ class NFCManagerService {
     } catch (error) {
       return {error: categorizeError(error)};
     } finally {
-      // Always clean up
+      // Only clean up if not keeping alive
+      if (!keepAlive) {
+        await this.cancelScan();
+      }
+    }
+  }
+
+  /**
+   * Scan tag and run detection callback while NFC session is active
+   * This ensures commands can be sent during detection
+   */
+  async scanWithDetection<T>(
+    detectFn: (tag: RawTagData) => Promise<T>,
+  ): Promise<{tag?: RawTagData; detection?: T; error?: ScanError}> {
+    try {
+      // Scan but keep the session alive
+      const {tag, error} = await this.scanTag(true);
+
+      if (error || !tag) {
+        return {error};
+      }
+
+      // Run detection while session is still active
+      try {
+        const detection = await detectFn(tag);
+        return {tag, detection};
+      } catch (detectError) {
+        // Detection failed but we still have the tag data
+        console.warn('[NFCManager] Detection failed:', detectError);
+        return {tag};
+      }
+    } finally {
+      // Always clean up after detection
       await this.cancelScan();
     }
   }
