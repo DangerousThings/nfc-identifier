@@ -3,8 +3,6 @@
  * All console.log statements in the app should use this logger
  */
 
-/* eslint-disable no-console */
-
 const isDev = __DEV__;
 
 export const logger = {
