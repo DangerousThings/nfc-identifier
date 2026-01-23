@@ -1,14 +1,26 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, View, ScrollView, Linking} from 'react-native';
 import {Button, Text, Surface, Divider, Chip} from 'react-native-paper';
 import type {ResultScreenProps} from '../types/navigation';
 import {DTColors} from '../theme';
+import {matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning} from '../services/matching';
+import {Product} from '../types/products';
 
 export function ResultScreen({route, navigation}: ResultScreenProps) {
   const {tagData, transponder} = route.params;
 
+  // Match chip to products
+  const matchResult = useMemo(() => {
+    if (!transponder) return null;
+    return matchChipToProducts(transponder.type);
+  }, [transponder]);
+
   const handleConversionLink = () => {
-    Linking.openURL('https://dngr.us/conversion');
+    Linking.openURL(matchResult?.conversionUrl || 'https://dngr.us/conversion');
+  };
+
+  const handleProductLink = (product: Product) => {
+    Linking.openURL(product.url);
   };
 
   // Determine card colors based on detection
@@ -83,6 +95,99 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
               <Text variant="bodySmall" style={styles.cloneabilityNote}>
                 {transponder.cloneabilityNote}
               </Text>
+            )}
+          </Surface>
+        )}
+
+        {/* Product Matches Card */}
+        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && (
+          <Surface style={styles.productsCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.productsLabel}>
+              COMPATIBLE IMPLANTS
+            </Text>
+            <Divider style={[styles.divider, {backgroundColor: DTColors.modeEmphasis}]} />
+
+            <Text variant="bodyMedium" style={styles.matchSummary}>
+              {getMatchSummary(matchResult, transponder.chipName)}
+            </Text>
+
+            {/* Exact Matches / Clone Targets */}
+            {[...matchResult.exactMatches, ...matchResult.cloneTargets.filter(
+              p => !matchResult.exactMatches.find(e => e.id === p.id)
+            )].map(product => (
+              <Surface key={product.id} style={styles.productItem} elevation={0}>
+                <View style={styles.productHeader}>
+                  <Text variant="titleMedium" style={styles.productName}>
+                    {product.name}
+                  </Text>
+                  <Chip
+                    style={styles.formFactorChip}
+                    textStyle={styles.formFactorChipText}>
+                    {product.formFactor.replace('_', ' ')}
+                  </Chip>
+                </View>
+
+                <Text variant="bodySmall" style={styles.productDescription}>
+                  {product.description}
+                </Text>
+
+                {product.notes && (
+                  <Text variant="bodySmall" style={styles.productNote}>
+                    Note: {product.notes}
+                  </Text>
+                )}
+
+                {/* DESFire EV mismatch warning */}
+                {getDesfireEvMismatchWarning(transponder.type, product) && (
+                  <Text variant="bodySmall" style={styles.evMismatchWarning}>
+                    ⚠️ {getDesfireEvMismatchWarning(transponder.type, product)}
+                  </Text>
+                )}
+
+                <View style={styles.productFeatures}>
+                  {product.features.slice(0, 3).map((feature, idx) => (
+                    <Text key={idx} variant="bodySmall" style={styles.productFeature}>
+                      • {feature}
+                    </Text>
+                  ))}
+                </View>
+
+                <Button
+                  mode="outlined"
+                  onPress={() => handleProductLink(product)}
+                  style={styles.productButton}
+                  labelStyle={styles.productButtonLabel}
+                  compact>
+                  VIEW PRODUCT
+                </Button>
+              </Surface>
+            ))}
+          </Surface>
+        )}
+
+        {/* No Match Card - show when chip detected but no products match */}
+        {transponder && matchResult && matchResult.exactMatches.length === 0 && matchResult.cloneTargets.length === 0 && (
+          <Surface style={styles.noMatchCard} elevation={1}>
+            <Text variant="labelLarge" style={styles.noMatchLabel}>
+              NO DIRECT MATCH
+            </Text>
+            <Divider style={[styles.divider, {backgroundColor: DTColors.modeOther}]} />
+
+            <Text variant="bodyMedium" style={styles.noMatchText}>
+              {getMatchSummary(matchResult, transponder.chipName)}
+            </Text>
+
+            {matchResult.familyMatches.length > 0 && (
+              <>
+                <Text variant="bodySmall" style={styles.familyMatchesLabel}>
+                  Related products in the same chip family:
+                </Text>
+                {matchResult.familyMatches.slice(0, 2).map(product => (
+                  <Text key={product.id} variant="bodySmall" style={styles.familyMatchItem}>
+                    • {product.name}
+                  </Text>
+                ))}
+              </>
             )}
           </Surface>
         )}
@@ -195,11 +300,15 @@ export function ResultScreen({route, navigation}: ResultScreenProps) {
           </Surface>
         )}
 
-        {/* Conversion Service Card - only show if chip is NOT cloneable */}
-        {(!transponder || !transponder.isCloneable) && (
+        {/* Conversion Service Card - show when recommended */}
+        {(matchResult?.conversionRecommended || !transponder) && (
           <Surface style={styles.conversionCard} elevation={1}>
             <Text variant="bodyMedium" style={styles.conversionText}>
-              Can't clone this chip? Check out our conversion service.
+              {!transponder
+                ? 'Unknown chip? Our conversion service can help.'
+                : matchResult?.isCloneable === false
+                  ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
+                  : "No direct product match found. Our conversion service can help."}
             </Text>
             <Button
               mode="outlined"
@@ -386,6 +495,113 @@ const styles = StyleSheet.create({
   noDetectionText: {
     color: DTColors.light,
     opacity: 0.8,
+  },
+  // Products Card
+  productsCard: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: DTColors.modeEmphasis,
+    padding: 20,
+    marginBottom: 20,
+  },
+  productsLabel: {
+    color: DTColors.modeEmphasis,
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  matchSummary: {
+    color: DTColors.light,
+    marginBottom: 16,
+  },
+  productItem: {
+    backgroundColor: '#111111',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeNormal,
+    padding: 16,
+    marginBottom: 12,
+  },
+  productHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  productName: {
+    color: DTColors.modeEmphasis,
+    fontWeight: 'bold',
+  },
+  formFactorChip: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: DTColors.modeNormal,
+    height: 24,
+  },
+  formFactorChipText: {
+    color: DTColors.modeNormal,
+    fontSize: 10,
+  },
+  productDescription: {
+    color: DTColors.light,
+    opacity: 0.8,
+    marginBottom: 8,
+  },
+  productNote: {
+    color: DTColors.modeOther,
+    fontStyle: 'italic',
+    marginBottom: 8,
+  },
+  evMismatchWarning: {
+    color: DTColors.modeEmphasis,
+    backgroundColor: 'rgba(255, 255, 0, 0.1)',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  productFeatures: {
+    marginBottom: 12,
+  },
+  productFeature: {
+    color: DTColors.light,
+    opacity: 0.7,
+    marginBottom: 2,
+  },
+  productButton: {
+    borderColor: DTColors.modeEmphasis,
+    borderWidth: 1,
+  },
+  productButtonLabel: {
+    color: DTColors.modeEmphasis,
+    fontSize: 12,
+  },
+  // No Match Card
+  noMatchCard: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeOther,
+    padding: 20,
+    marginBottom: 20,
+  },
+  noMatchLabel: {
+    color: DTColors.modeOther,
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  noMatchText: {
+    color: DTColors.light,
+    opacity: 0.8,
+    marginBottom: 12,
+  },
+  familyMatchesLabel: {
+    color: DTColors.light,
+    opacity: 0.6,
+    marginBottom: 8,
+  },
+  familyMatchItem: {
+    color: DTColors.modeNormal,
+    marginBottom: 4,
   },
   // Conversion Card
   conversionCard: {
