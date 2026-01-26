@@ -1,8 +1,8 @@
 import React from 'react';
 import {StyleSheet, View} from 'react-native';
-import {Button, Text, Surface} from 'react-native-paper';
+import {Text, Surface} from 'react-native-paper';
+import {DTButton, DTColors} from 'react-native-dt-theme';
 import type {HomeScreenProps} from '../types/navigation';
-import {DTColors} from '../theme';
 
 export function HomeScreen({navigation}: HomeScreenProps) {
   return (
@@ -21,14 +21,11 @@ export function HomeScreen({navigation}: HomeScreenProps) {
           Scan any NFC transponder to find compatible Dangerous Things implants.
         </Text>
 
-        <Button
-          mode="outlined"
-          onPress={() => navigation.navigate('Scan')}
-          style={styles.scanButton}
-          labelStyle={styles.scanButtonLabel}
-          contentStyle={styles.scanButtonContent}>
+        <DTButton
+          variant="normal"
+          onPress={() => navigation.navigate('Scan')}>
           START SCAN
-        </Button>
+        </DTButton>
       </View>
 
       <View style={styles.footer}>
@@ -73,21 +70,6 @@ const styles = StyleSheet.create({
     marginBottom: 48,
     opacity: 0.9,
     paddingHorizontal: 20,
-  },
-  scanButton: {
-    borderColor: DTColors.modeNormal,
-    borderWidth: 2,
-    borderRadius: 4,
-  },
-  scanButtonLabel: {
-    color: DTColors.modeNormal,
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 2,
-  },
-  scanButtonContent: {
-    paddingVertical: 12,
-    paddingHorizontal: 32,
   },
   footer: {
     alignItems: 'center',

@@ -3,7 +3,7 @@
     "strict": true,
     "target": "ESNext",
     "lib": [
-      "ES2020",
+      "ES2021",
       "DOM"
     ],
     "module": "ESNext",
@@ -21,13 +21,16 @@
     ]
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx"
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "*.ts",
+    "*.tsx"
   ],
   "exclude": [
     "node_modules",
     "android",
-    "ios"
+    "ios",
+    "../react-native-dt-theme"
   ],
   "extends": "expo/tsconfig.base"
 }

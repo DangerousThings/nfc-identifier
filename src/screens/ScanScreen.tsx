@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Button, Text } from 'react-native-paper';
+import { DTButton, DTColors } from 'react-native-dt-theme';
 import type { ScanScreenProps } from '../types/navigation';
-import { DTColors } from '../theme';
 import { useScan } from '../hooks';
 import { getScanInstructions } from '../services/nfc';
 import { ScanAnimation } from '../components';
@@ -155,13 +155,12 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
               : 'Enable NFC in your device settings to scan tags.'}
           </Text>
           {Platform.OS === 'android' && (
-            <Button
-              mode="outlined"
+            <DTButton
+              variant="emphasis"
               onPress={openSettings}
-              style={styles.settingsButton}
-              labelStyle={styles.settingsButtonLabel}>
+              style={styles.settingsButton}>
               OPEN SETTINGS
-            </Button>
+            </DTButton>
           )}
         </View>
         <View style={styles.footer}>
@@ -230,13 +229,11 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
                 {getErrorHint()}
               </Text>
             )}
-            <Button
-              mode="outlined"
-              onPress={handleRetry}
-              style={styles.retryButton}
-              labelStyle={styles.buttonLabel}>
+            <DTButton
+              variant="normal"
+              onPress={handleRetry}>
               TRY AGAIN
-            </Button>
+            </DTButton>
           </>
         )}
 
@@ -245,13 +242,11 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
             <Text variant="headlineMedium" style={styles.readyText}>
               READY TO SCAN
             </Text>
-            <Button
-              mode="outlined"
-              onPress={startScan}
-              style={styles.startButton}
-              labelStyle={styles.buttonLabel}>
+            <DTButton
+              variant="normal"
+              onPress={startScan}>
               START
-            </Button>
+            </DTButton>
           </>
         )}
 
@@ -368,31 +363,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     fontStyle: 'italic',
   },
-  retryButton: {
-    borderColor: DTColors.modeNormal,
-    borderWidth: 2,
-  },
   settingsButton: {
-    borderColor: DTColors.modeEmphasis,
-    borderWidth: 2,
     marginTop: 16,
-  },
-  settingsButtonLabel: {
-    color: DTColors.modeEmphasis,
-    letterSpacing: 2,
   },
   readyText: {
     color: DTColors.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 32,
-  },
-  startButton: {
-    borderColor: DTColors.modeNormal,
-    borderWidth: 2,
-  },
-  buttonLabel: {
-    color: DTColors.modeNormal,
-    letterSpacing: 2,
   },
   processingText: {
     color: DTColors.modeEmphasis,

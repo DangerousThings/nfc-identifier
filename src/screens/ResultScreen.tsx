@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View, ScrollView, Linking, TouchableOpacity } from 'react-native';
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
+import { DTCard, DTButton, DTColors } from 'react-native-dt-theme';
 import type { ResultScreenProps } from '../types/navigation';
-import { DTColors } from '../theme';
 import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getMifareClassicCapacityWarning } from '../services/matching';
 import { Product } from '../types/products';
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
@@ -72,11 +72,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
       <View style={styles.content}>
         {/* Chip Identification Card */}
         {transponder && (
-          <Surface style={styles.identificationCard} elevation={1}>
-            <Text variant="labelLarge" style={styles.identificationLabel}>
-              CHIP IDENTIFIED
-            </Text>
-            <Divider style={styles.divider} />
+          <DTCard mode="success" title="CHIP IDENTIFIED" style={{marginBottom: 20}}>
 
             <Text variant="headlineMedium" style={styles.chipName}>
               {transponder.chipName}
@@ -147,7 +143,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 {transponder.cloneabilityNote}
               </Text>
             )}
-          </Surface>
+          </DTCard>
         )}
 
         {/* Educational Chip Info Card */}
@@ -380,11 +376,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         )}
 
         {/* Raw Tag Data Card */}
-        <Surface style={styles.resultCard} elevation={1}>
-          <Text variant="labelLarge" style={styles.cardLabel}>
-            RAW TAG DATA
-          </Text>
-          <Divider style={styles.divider} />
+        <DTCard mode="normal" title="RAW TAG DATA" style={{marginBottom: 20}}>
 
           {tagData ? (
             <>
@@ -444,7 +436,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               No tag data available
             </Text>
           )}
-        </Surface>
+        </DTCard>
 
         {/* No Detection Card (fallback) */}
         {!transponder && (
@@ -494,13 +486,12 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
 
         {/* Action Buttons */}
         <View style={styles.actions}>
-          <Button
-            mode="outlined"
+          <DTButton
+            variant="normal"
             onPress={() => navigation.navigate('Scan')}
-            style={styles.actionButton}
-            labelStyle={styles.actionButtonLabel}>
+            style={{width: '100%'}}>
             SCAN ANOTHER
-          </Button>
+          </DTButton>
 
           <Button
             mode="text"
