@@ -15,7 +15,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
   // Match chip to products
   const matchResult = useMemo(() => {
     if (!transponder) return null;
-    return matchChipToProducts(transponder.type);
+    return matchChipToProducts(transponder);
   }, [transponder]);
 
   // Get educational chip info
@@ -449,31 +449,41 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
             <Text variant="bodyMedium" style={styles.noDetectionText}>
               Unable to identify this chip type. It may be unsupported or require advanced detection.
             </Text>
-          </Surface>
-        )}
-
-        {/* Conversion Service Card - show for payment devices, or when recommended and not a real implant */}
-        {(transponder?.implantName?.includes('Payment Card') ||
-          ((matchResult?.conversionRecommended || !transponder) && !transponder?.implantName)) && (
-          <Surface style={styles.conversionCard} elevation={1}>
-            <Text variant="bodyMedium" style={styles.conversionText}>
-              {transponder?.implantName?.includes('Payment Card')
-                ? "Payment cards can't be converted to implants due to security restrictions. Our conversion service can help you find an implant that works with your use case."
-                : !transponder
-                  ? 'Unknown chip? Our conversion service can help.'
-                  : matchResult?.isCloneable === false
-                    ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
-                    : "No direct product match found. Our conversion service can help."}
+            <Text variant="bodyMedium" style={styles.noDetectionText}>
+              Need help? Ask on our forum for assistance.
             </Text>
             <Button
               mode="outlined"
-              onPress={handleConversionLink}
-              style={styles.conversionButton}
-              labelStyle={styles.conversionButtonLabel}>
-              CONVERSION SERVICE
+              onPress={() => Linking.openURL(buildTrackedUrl('https://dngr.us/forum', 'unknown_chip'))}
+              style={styles.forumButton}
+              labelStyle={styles.forumButtonLabel}>
+              VISIT FORUM
             </Button>
           </Surface>
         )}
+
+        {/* Conversion Service Card - show for payment devices, or when recommended (but NOT for unidentified chips) */}
+        {transponder && (transponder?.implantName?.includes('Payment Card') ||
+          (matchResult?.conversionRecommended && !transponder?.implantName)) && (
+            <Surface style={styles.conversionCard} elevation={1}>
+              <Text variant="bodyMedium" style={styles.conversionText}>
+                {transponder?.implantName?.includes('Payment Card')
+                  ? "Payment cards can't be copied/cloned to implants. Our conversion service might be an option."
+                  : !transponder
+                    ? 'Unknown chip? Our conversion service can help.'
+                    : matchResult?.isCloneable === false
+                      ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
+                      : "No direct product match found. Our conversion service can help."}
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={handleConversionLink}
+                style={styles.conversionButton}
+                labelStyle={styles.conversionButtonLabel}>
+                CONVERSION SERVICE
+              </Button>
+            </Surface>
+          )}
 
         {/* Action Buttons */}
         <View style={styles.actions}>
@@ -650,6 +660,16 @@ const styles = StyleSheet.create({
   noDetectionText: {
     color: DTColors.light,
     opacity: 0.8,
+    marginBottom: 12,
+  },
+  forumButton: {
+    borderColor: DTColors.modeWarning,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  forumButtonLabel: {
+    color: DTColors.modeWarning,
+    fontSize: 12,
   },
   // Products Card
   productsCard: {

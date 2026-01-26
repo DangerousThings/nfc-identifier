@@ -11,6 +11,7 @@ import type {
   ScanError,
   ScanErrorType,
   NfcTechType,
+  NdefRecord,
 } from '../../types/nfc';
 
 /**
@@ -116,6 +117,47 @@ function parseAts(tag: TagEvent): {ats?: string; historicalBytes?: string} {
 }
 
 /**
+ * Parse NDEF records from TagEvent
+ */
+function parseNdefRecords(tag: TagEvent): NdefRecord[] | undefined {
+  const ndefMessage = (tag as any).ndefMessage;
+  if (!ndefMessage || !Array.isArray(ndefMessage) || ndefMessage.length === 0) {
+    return undefined;
+  }
+
+  const records: NdefRecord[] = [];
+  for (const record of ndefMessage) {
+    if (!record) continue;
+
+    // react-native-nfc-manager returns NDEF records with these properties
+    const tnf = record.tnf ?? 0;
+    const type = record.type
+      ? typeof record.type === 'string'
+        ? record.type
+        : String.fromCharCode(...(Array.isArray(record.type) ? record.type : []))
+      : '';
+    const id = record.id
+      ? typeof record.id === 'string'
+        ? record.id
+        : String.fromCharCode(...(Array.isArray(record.id) ? record.id : []))
+      : undefined;
+    const payload = Array.isArray(record.payload)
+      ? record.payload
+      : typeof record.payload === 'string'
+        ? record.payload.split('').map((c: string) => c.charCodeAt(0))
+        : [];
+
+    records.push({tnf, type, id, payload});
+  }
+
+  if (records.length > 0) {
+    console.log('[NFCManager] Parsed NDEF records:', records.length);
+  }
+
+  return records.length > 0 ? records : undefined;
+}
+
+/**
  * Convert TagEvent to RawTagData
  */
 function tagEventToRawData(tag: TagEvent): RawTagData {
@@ -124,6 +166,7 @@ function tagEventToRawData(tag: TagEvent): RawTagData {
   const sak = parseSak(tag);
   const atqa = parseAtqa(tag);
   const {ats, historicalBytes} = parseAts(tag);
+  const ndefRecords = parseNdefRecords(tag);
 
   const isoDep = (tag as any).isoDep;
   const iso7816 = (tag as any).iso7816;
@@ -160,6 +203,7 @@ function tagEventToRawData(tag: TagEvent): RawTagData {
     ats,
     historicalBytes,
     maxTransceiveLength,
+    ndefRecords,
   };
 }
 

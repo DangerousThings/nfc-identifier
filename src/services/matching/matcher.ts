@@ -4,8 +4,8 @@
  * Matches detected NFC chips to compatible Dangerous Things products
  */
 
-import {ChipType, getChipFamily, CHIP_CLONEABILITY, ChipFamily} from '../../types/detection';
-import {MatchResult, Product, DesfireEvLevel} from '../../types/products';
+import { ChipType, getChipFamily, CHIP_CLONEABILITY, ChipFamily, Transponder } from '../../types/detection';
+import { MatchResult, Product, DesfireEvLevel } from '../../types/products';
 import {
   PRODUCTS,
   getChipProductMap,
@@ -15,7 +15,8 @@ import {
 /**
  * Match a detected chip to compatible products
  */
-export function matchChipToProducts(chipType: ChipType): MatchResult {
+export function matchChipToProducts(chip: Transponder): MatchResult {
+  const chipType = chip.type as ChipType
   const chipProductMap = getChipProductMap();
   const cloneability = CHIP_CLONEABILITY[chipType];
   const chipFamily = getChipFamily(chipType);
@@ -32,7 +33,12 @@ export function matchChipToProducts(chipType: ChipType): MatchResult {
       exactMatches.push(product);
     }
     if (product.canReceiveClone && cloneability?.cloneable) {
-      cloneTargets.push(product);
+      if ((product.name.startsWith("xMagic") || product.name.startsWith("xM1") || product.name.startsWith("flexM1")) && chip.rawData.uid.replaceAll(":", "").length / 2 !== 4) {
+        // This skips things without a 4-byte UID
+
+      } else {
+        cloneTargets.push(product);
+      }
     }
   }
 

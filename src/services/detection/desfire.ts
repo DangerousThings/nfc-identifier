@@ -5,6 +5,7 @@
  */
 
 import {ChipType, DesfireVersionInfo} from '../../types/detection';
+import type {NdefRecord} from '../../types/nfc';
 import {
   DESFIRE_GET_VERSION,
   DESFIRE_GET_VERSION_CONTINUE,
@@ -15,10 +16,72 @@ import {
 } from '../nfc/commands';
 
 /**
+ * URI record type name format prefixes
+ * https://www.nfc-forum.org/specs/
+ */
+const URI_PREFIXES: Record<number, string> = {
+  0x00: '',
+  0x01: 'http://www.',
+  0x02: 'https://www.',
+  0x03: 'http://',
+  0x04: 'https://',
+  0x05: 'tel:',
+  0x06: 'mailto:',
+};
+
+/**
+ * Detect Spark 2 implant from cached NDEF records
+ * This should be called BEFORE any APDU commands to avoid putting the tag
+ * into native mode which breaks ISO 7816-4 NDEF reading
+ */
+export function detectSpark2FromNdef(
+  ndefRecords?: NdefRecord[],
+): Spark2DetectionResult {
+  if (!ndefRecords || ndefRecords.length === 0) {
+    return {found: false};
+  }
+
+  console.log('[DESFire] Checking cached NDEF records for Spark 2...');
+
+  for (const record of ndefRecords) {
+    // Check for URI record (TNF=1, type="U")
+    if (record.tnf === 1 && record.type === 'U' && record.payload.length > 0) {
+      // First byte is URI prefix code
+      const prefixCode = record.payload[0];
+      const prefix = URI_PREFIXES[prefixCode] || '';
+      const uriBody = record.payload
+        .slice(1)
+        .map(b => String.fromCharCode(b))
+        .join('');
+      const fullUri = prefix + uriBody;
+
+      console.log('[DESFire] Found URI record:', fullUri);
+
+      // Check for vivokey.co pattern
+      const vivokeyMatch = fullUri.match(/vivokey\.co\/([A-Za-z0-9_\-]+)/i);
+      if (vivokeyMatch) {
+        const code = vivokeyMatch[1];
+        const url = `https://vivokey.co/${code}`;
+        console.log('[DESFire] Found Spark 2 URL:', url);
+        return {
+          found: true,
+          name: 'Spark 2',
+          url,
+        };
+      }
+    }
+  }
+
+  console.log('[DESFire] No vivokey.co URL in NDEF records');
+  return {found: false};
+}
+
+/**
  * Product type values from GET_VERSION byte 1
  */
 const PRODUCT_TYPES = {
   DESFIRE: 0x01, // Standard DESFire
+  NTAG: 0x04, // NTAG family (including NTAG 413 DNA which uses 0x04)
   NTAG_I2C: 0x05, // NTAG I2C family (can have ISO-DEP on Plus variants)
   DESFIRE_LIGHT: 0x08, // DESFire Light
   NTAG_424_DNA: 0x21, // NTAG 424 DNA family
@@ -184,7 +247,7 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
     let chipType: ChipType;
 
     if (hwProductType === PRODUCT_TYPES.NTAG_424_DNA) {
-      // NTAG DNA family (413 DNA and 424 DNA share product type 0x21)
+      // NTAG 424 DNA family uses product type 0x21
       // Subtype 0x02 = TagTamper variant (424 DNA TT only)
       // Storage size helps differentiate:
       // - NTAG 413 DNA: ~160 bytes user memory (storage code <= 0x0E)
@@ -198,6 +261,14 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
         // Larger storage indicates NTAG 424 DNA (~416 bytes)
         chipType = ChipType.NTAG424_DNA;
       }
+    } else if (hwProductType === PRODUCT_TYPES.NTAG && hwMajor >= 0x30) {
+      // NTAG 413 DNA returns product type 0x04 (like regular NTAG) but with:
+      // - hwMajor >= 0x30 (typically 0x30)
+      // - hwStorageSize 0x11 (different meaning than regular NTAG)
+      // - Responds to IsoDep (unlike regular NTAG 21x)
+      // Per NXP NT4H1321 datasheet, NTAG 413 DNA uses this response format
+      console.log('[DESFire] Detected NTAG 413 DNA (product type 0x04, hwMajor 0x30+)');
+      chipType = ChipType.NTAG413_DNA;
     } else if (hwProductType === PRODUCT_TYPES.NTAG_I2C) {
       // NTAG I2C family (can have ISO-DEP on Plus variants)
       // Per NXP NT3H2111/NT3H2211 datasheet:
@@ -430,31 +501,58 @@ export async function detectSpark2Implant(): Promise<Spark2DetectionResult> {
   try {
     console.log('[DESFire] Checking for Spark 2 implant NDEF...');
 
-    // Step 1: Select NDEF application
+    // Step 1: Select NDEF application (D2760000850101)
+    console.log('[DESFire] Selecting NDEF application...');
     const selectNdefApp = await sendIsoDepCommand(selectAid(KNOWN_AIDS.ndefTag));
     const selectAppResponse = parseApduResponse(selectNdefApp);
+    console.log('[DESFire] NDEF app select result:', {
+      sw: `${selectAppResponse.sw1.toString(16)}${selectAppResponse.sw2.toString(16)}`,
+      success: selectAppResponse.isSuccess,
+    });
 
     if (!selectAppResponse.isSuccess) {
       console.log('[DESFire] NDEF app selection failed');
       return {found: false};
     }
 
-    // Step 2: Select NDEF file (file ID E104 for standard NDEF)
-    // SELECT command: 00 A4 00 0C 02 E104
+    // Step 2: Select NDEF file (file ID E104 for standard Type 4 Tag)
+    // SELECT by file ID: 00 A4 00 0C 02 E104
+    console.log('[DESFire] Selecting NDEF file E104...');
     const selectFileCmd = [0x00, 0xa4, 0x00, 0x0c, 0x02, 0xe1, 0x04];
     const selectFileResponse = await sendIsoDepCommand(selectFileCmd);
     const selectFileParsed = parseApduResponse(selectFileResponse);
+    console.log('[DESFire] NDEF file select result:', {
+      sw: `${selectFileParsed.sw1.toString(16)}${selectFileParsed.sw2.toString(16)}`,
+      success: selectFileParsed.isSuccess,
+    });
 
     if (!selectFileParsed.isSuccess) {
-      console.log('[DESFire] NDEF file selection failed');
-      return {found: false};
+      // Try alternate file ID (some Type 4 tags use E102 or just 02)
+      console.log('[DESFire] Trying alternate NDEF file 0002...');
+      const altSelectCmd = [0x00, 0xa4, 0x00, 0x0c, 0x02, 0x00, 0x02];
+      const altSelectResponse = await sendIsoDepCommand(altSelectCmd);
+      const altSelectParsed = parseApduResponse(altSelectResponse);
+      console.log('[DESFire] Alternate file select result:', {
+        sw: `${altSelectParsed.sw1.toString(16)}${altSelectParsed.sw2.toString(16)}`,
+        success: altSelectParsed.isSuccess,
+      });
+
+      if (!altSelectParsed.isSuccess) {
+        console.log('[DESFire] NDEF file selection failed');
+        return {found: false};
+      }
     }
 
     // Step 3: Read NDEF length (first 2 bytes)
     // READ BINARY: 00 B0 00 00 02
+    console.log('[DESFire] Reading NDEF length...');
     const readLengthCmd = [0x00, 0xb0, 0x00, 0x00, 0x02];
     const readLengthResponse = await sendIsoDepCommand(readLengthCmd);
     const lengthParsed = parseApduResponse(readLengthResponse);
+    console.log('[DESFire] NDEF length read result:', {
+      sw: `${lengthParsed.sw1.toString(16)}${lengthParsed.sw2.toString(16)}`,
+      data: lengthParsed.data,
+    });
 
     if (!lengthParsed.isSuccess || lengthParsed.data.length < 2) {
       console.log('[DESFire] NDEF length read failed');
@@ -462,39 +560,58 @@ export async function detectSpark2Implant(): Promise<Spark2DetectionResult> {
     }
 
     const ndefLength = (lengthParsed.data[0] << 8) | lengthParsed.data[1];
-    console.log('[DESFire] NDEF length:', ndefLength);
+    console.log('[DESFire] NDEF message length:', ndefLength, 'bytes');
 
     if (ndefLength === 0 || ndefLength > 500) {
-      console.log('[DESFire] Invalid NDEF length');
+      console.log('[DESFire] Invalid or empty NDEF length');
       return {found: false};
     }
 
     // Step 4: Read NDEF message (starting after length bytes)
-    // READ BINARY: 00 B0 00 02 <length>
-    const readDataCmd = [0x00, 0xb0, 0x00, 0x02, Math.min(ndefLength, 128)];
-    const readDataResponse = await sendIsoDepCommand(readDataCmd);
-    const dataParsed = parseApduResponse(readDataResponse);
+    // For longer NDEF messages, we may need to read in chunks
+    const allNdefData: number[] = [];
+    let offset = 2; // Start after the 2-byte length field
+    let remaining = ndefLength;
 
-    if (!dataParsed.isSuccess || dataParsed.data.length === 0) {
-      console.log('[DESFire] NDEF data read failed');
+    while (remaining > 0) {
+      const chunkSize = Math.min(remaining, 128); // Read up to 128 bytes at a time
+      // READ BINARY: 00 B0 <offset high> <offset low> <length>
+      const readDataCmd = [0x00, 0xb0, (offset >> 8) & 0xff, offset & 0xff, chunkSize];
+      const readDataResponse = await sendIsoDepCommand(readDataCmd);
+      const dataParsed = parseApduResponse(readDataResponse);
+
+      if (!dataParsed.isSuccess || dataParsed.data.length === 0) {
+        console.log('[DESFire] NDEF data read failed at offset', offset);
+        break;
+      }
+
+      allNdefData.push(...dataParsed.data);
+      offset += dataParsed.data.length;
+      remaining -= dataParsed.data.length;
+    }
+
+    if (allNdefData.length === 0) {
+      console.log('[DESFire] No NDEF data read');
       return {found: false};
     }
 
     console.log(
-      '[DESFire] NDEF data:',
-      dataParsed.data.map(b => b.toString(16).padStart(2, '0')).join(' '),
+      '[DESFire] NDEF data (' + allNdefData.length + ' bytes):',
+      allNdefData.slice(0, 50).map(b => b.toString(16).padStart(2, '0')).join(' ') +
+        (allNdefData.length > 50 ? '...' : ''),
     );
 
     // Convert to ASCII and look for vivokey.co pattern
-    const asciiStr = dataParsed.data
+    const asciiStr = allNdefData
       .filter(b => b >= 0x20 && b <= 0x7e)
       .map(b => String.fromCharCode(b))
       .join('');
 
     console.log('[DESFire] NDEF ASCII:', asciiStr);
 
-    // Check for vivokey.co URL pattern
-    const vivokeyMatch = asciiStr.match(/vivokey\.co\/([A-Za-z0-9]+)/i);
+    // Check for vivokey.co URL pattern - match any characters after the domain
+    // Pattern allows alphanumeric, hyphens, underscores, and other URL-safe chars
+    const vivokeyMatch = asciiStr.match(/vivokey\.co\/([A-Za-z0-9_\-]+)/i);
     if (vivokeyMatch) {
       const code = vivokeyMatch[1];
       const url = `https://vivokey.co/${code}`;

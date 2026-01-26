@@ -20,9 +20,25 @@ export function ScanScreen({navigation}: ScanScreenProps) {
     openSettings,
   } = useScan();
 
-  // Navigate to results when scan succeeds (detection happens in the hook)
+  // Track if we've already navigated to prevent double navigation
+  const hasNavigated = React.useRef(false);
+
+  // Navigate to results when scan succeeds AND transponder is set
+  // We need transponder to be set (even if null for failed detection) before navigating
   useEffect(() => {
-    if (state === 'success' && tag) {
+    // Only navigate once per scan session
+    if (hasNavigated.current) return;
+
+    // Wait for success state, tag data, AND transponder to be set
+    // transponder: undefined = not yet set, null = detection failed, Transponder = success
+    if (state === 'success' && tag && transponder !== undefined) {
+      hasNavigated.current = true;
+      console.log('[ScanScreen] Navigating to Result:', {
+        hasTag: !!tag,
+        hasTransponder: !!transponder,
+        transponderType: transponder?.type,
+        transponderChipName: transponder?.chipName,
+      });
       navigation.replace('Result', {
         tagData: {
           uid: tag.uid,
@@ -36,6 +52,13 @@ export function ScanScreen({navigation}: ScanScreenProps) {
       });
     }
   }, [state, tag, transponder, navigation]);
+
+  // Reset navigation flag when starting a new scan
+  useEffect(() => {
+    if (state === 'scanning') {
+      hasNavigated.current = false;
+    }
+  }, [state]);
 
   // Auto-start scan when screen loads
   useEffect(() => {

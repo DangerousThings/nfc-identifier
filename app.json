@@ -14,7 +14,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.dangerousthings.nfcidentifier",
       "infoPlist": {
-        "NFCReaderUsageDescription": "This app uses NFC to scan transponders and identify compatible Dangerous Things implants."
+        "NFCReaderUsageDescription": "This app uses NFC to scan transponders and identify compatible Dangerous Things implants.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

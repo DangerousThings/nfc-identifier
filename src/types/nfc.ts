@@ -19,6 +19,20 @@ export type NfcTechType =
   | 'Iso15693';
 
 /**
+ * NDEF record from tag
+ */
+export interface NdefRecord {
+  /** Type Name Format */
+  tnf: number;
+  /** Record type as string */
+  type: string;
+  /** Record ID */
+  id?: string;
+  /** Payload data as byte array */
+  payload: number[];
+}
+
+/**
  * Raw tag data from NFC scan
  */
 export interface RawTagData {
@@ -36,6 +50,8 @@ export interface RawTagData {
   historicalBytes?: string;
   /** Maximum transceive length */
   maxTransceiveLength?: number;
+  /** Cached NDEF records (if tag supports NDEF) */
+  ndefRecords?: NdefRecord[];
 }
 
 /**

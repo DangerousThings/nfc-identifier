@@ -8,7 +8,7 @@
  * Discontinued products removed per https://forum.dangerousthings.com/t/shes-dead-jim/26308
  */
 
-import {ChipType} from '../types/detection';
+import { ChipType } from '../types/detection';
 import {
   Product,
   FormFactor,
@@ -72,7 +72,7 @@ export const PRODUCTS: Product[] = [
     id: 'xnt',
     name: 'xNT',
     description:
-      'NFC Type 2 implant with 888 bytes of user memory. The original and most popular NFC implant.',
+      'NFC Type 2 implant with 888 bytes of user memory.',
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
@@ -96,9 +96,9 @@ export const PRODUCTS: Product[] = [
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
     features: [
       'NTAG I2C chip',
-      '888 bytes user memory',
-      'Built-in LED indicator',
-      'Multiple colors available',
+      '1kB user memory',
+      'URL/contact sharing',
+      'Red, Green, Blue, and White LEDs available',
     ],
     url: 'https://dangerousthings.com/product/xsiid/',
     canReceiveClone: true,
@@ -107,14 +107,14 @@ export const PRODUCTS: Product[] = [
   {
     id: 'xslx',
     name: 'xSLX',
-    description: 'ISO 15693 NFC-V implant using ICODE SLIX chip.',
+    description: 'NFC Type 5 implant using ICODE SLIX chip.',
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC],
     compatibleChips: [...SLIX_COMPATIBLE],
     features: [
       'ICODE SLIX chip',
-      'ISO 15693 (NFC-V)',
-      'Long range capability',
+      '320 bbytes user memory',
+      'URL/contact sharing',
     ],
     url: 'https://dangerousthings.com/product/xslx/',
     canReceiveClone: true,
@@ -133,10 +133,11 @@ export const PRODUCTS: Product[] = [
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
     features: [
+      'Dual-frequency',
       'NTAG216 NFC chip',
+      '888 bytes user memory',
       'T5577 125kHz chip',
-      'Dual-frequency capability',
-      'HID/EM compatible',
+      'LF access control',
     ],
     url: 'https://dangerousthings.com/product/next/',
     canReceiveClone: true,
@@ -147,15 +148,17 @@ export const PRODUCTS: Product[] = [
     id: 'next-v2',
     name: 'NExT v2',
     description:
-      'Updated dual-frequency implant with NTAG I2C, T5577, and built-in LED indicator.',
+      'Updated dual-frequency implant with NTAG I2C, T5577, and built-in LED.',
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS, ProductCategory.LED],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
     features: [
       'NTAG I2C NFC chip',
+      '1kB user memory',
+      'URL/contact sharing',
+      'Green, Blue, and White LEDs available (HF)',
       'T5577 125kHz chip',
-      'Built-in LED indicator',
-      '888 bytes user memory',
+      'LF access control',
     ],
     url: 'https://dangerousthings.com/product/next-v2/',
     canReceiveClone: true,
@@ -240,36 +243,13 @@ export const PRODUCTS: Product[] = [
     categories: [ProductCategory.SECURE],
     compatibleChips: [ChipType.NTAG424_DNA, ChipType.NTAG424_DNA_TT, ChipType.ICODE_DNA],
     features: [
-      'Cryptographic authentication',
-      'VivoKey identity platform',
-      'Secure web login',
-      'Digital signatures',
+      'Spark Actions',
+      'Verify API',
     ],
-    url: 'https://dangerousthings.com/product/vivokey-spark-2/',
+    url: 'https://dangerousthings.com/product/vivokey-spark/',
     canReceiveClone: false,
     exactMatch: true,
     notes: 'Uses cryptographic authentication - cannot clone',
-  },
-
-  // ==========================================================================
-  // X-Series - LED/Special
-  // ==========================================================================
-  {
-    id: 'xglow',
-    name: 'xGlow',
-    description: 'Implant with LED that glows when exposed to NFC field.',
-    formFactor: FormFactor.X_SERIES,
-    categories: [ProductCategory.LED],
-    compatibleChips: [], // No NFC storage
-    features: [
-      'LED indicator',
-      'Multiple colors',
-      'Field detection',
-    ],
-    url: 'https://dangerousthings.com/product/xglow/',
-    canReceiveClone: false,
-    exactMatch: false,
-    notes: 'LED only - no NFC data storage',
   },
 
   // ==========================================================================
@@ -312,25 +292,6 @@ export const PRODUCTS: Product[] = [
     canReceiveClone: true,
     exactMatch: false,
     notes: 'Can clone MIFARE Classic cards (requires Android + keys)',
-  },
-  {
-    id: 'dt5',
-    name: 'dT5',
-    description:
-      'Bioresin 125kHz implant with T5577 chip for access control systems.',
-    formFactor: FormFactor.BIORESIN,
-    categories: [ProductCategory.ACCESS],
-    compatibleChips: [], // 125kHz only, no NFC
-    features: [
-      'T5577 125kHz chip',
-      'EM41xx emulation',
-      'HID ProxCard compatible',
-      'Bioresin encapsulation',
-    ],
-    url: 'https://dangerousthings.com/product/dt5/',
-    canReceiveClone: false,
-    exactMatch: false,
-    notes: '125kHz only - no NFC capability',
   },
 
   // ==========================================================================
@@ -481,23 +442,6 @@ export const PRODUCTS: Product[] = [
     canReceiveClone: false,
     exactMatch: false,
     notes: 'For HID iCLASS systems only',
-  },
-  {
-    id: 'teslaflex',
-    name: 'TeslaFlex',
-    description: 'Implant designed to work as a Tesla key card.',
-    formFactor: FormFactor.FLEX,
-    categories: [ProductCategory.ACCESS],
-    compatibleChips: [], // Tesla proprietary
-    features: [
-      'Tesla key card compatible',
-      'Flexible form factor',
-      'Direct Tesla integration',
-    ],
-    url: 'https://dangerousthings.com/product/teslaflex/',
-    canReceiveClone: false,
-    exactMatch: false,
-    notes: 'Specifically for Tesla vehicles',
   },
   {
     id: 'flexug4',

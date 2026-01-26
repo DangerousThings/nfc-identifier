@@ -21,7 +21,7 @@ import {
   hasIsoDepCapability,
   detectSakSwap,
 } from './mifare';
-import {detectDesfire, detectDesfireFromAts, detectSpark2Implant} from './desfire';
+import {detectDesfire, detectDesfireFromAts, detectSpark2Implant, detectSpark2FromNdef} from './desfire';
 import {detectIso15693, isIso15693, detectSparkImplant} from './iso15693';
 import {detectJavaCard, mightBeJavaCard, detectJavaCardFromAts} from './javacard';
 
@@ -265,15 +265,24 @@ export async function detectChip(
           desfireResult.chipType === ChipType.NTAG413_DNA;
 
         if (isNtagDna) {
-          try {
-            onProgress?.('Reading NDEF for Spark 2...');
-            const spark2Result = await detectSpark2Implant();
-            if (spark2Result.found && spark2Result.name) {
-              implantName = spark2Result.name;
-              console.log('[Detector] Found Spark 2 implant:', implantName);
+          // First, try to detect from cached NDEF records (doesn't require APDU)
+          // This works even after DESFire GET_VERSION puts the tag in native mode
+          const cachedNdefResult = detectSpark2FromNdef(rawData.ndefRecords);
+          if (cachedNdefResult.found && cachedNdefResult.name) {
+            implantName = cachedNdefResult.name;
+            console.log('[Detector] Found Spark 2 implant from cached NDEF:', implantName);
+          } else {
+            // Fallback: Try APDU-based NDEF reading (may fail if tag is in native mode)
+            try {
+              onProgress?.('Reading NDEF for Spark 2...');
+              const spark2Result = await detectSpark2Implant();
+              if (spark2Result.found && spark2Result.name) {
+                implantName = spark2Result.name;
+                console.log('[Detector] Found Spark 2 implant via APDU:', implantName);
+              }
+            } catch (e) {
+              console.warn('[Detector] Spark 2 APDU detection failed:', e);
             }
-          } catch (e) {
-            console.warn('[Detector] Spark 2 detection failed:', e);
           }
         }
 

@@ -819,19 +819,20 @@ export async function detectSparkImplant(
       console.log('[ISO15693] Found Spark URL:', url);
 
       // Determine Spark version based on chip type
-      // SLIX = Spark 1, NTAG 424 DNA = Spark 2
+      // SLIX/ICODE DNA = Spark 1 (ISO 15693)
+      // NTAG 424 DNA = Spark 2 (ISO 14443-4, handled in desfire.ts)
       let sparkName: string;
       if (
         chipType === ChipType.SLIX ||
         chipType === ChipType.SLIX_S ||
         chipType === ChipType.SLIX_L ||
-        chipType === ChipType.SLIX2
+        chipType === ChipType.SLIX2 ||
+        chipType === ChipType.ICODE_DNA
       ) {
         sparkName = 'Spark 1';
-      } else if (chipType === ChipType.NTAG424_DNA) {
-        sparkName = 'Spark 2';
       } else {
-        sparkName = 'Spark';
+        // Any other ISO 15693 chip with vivokey.co URL is likely a Spark variant
+        sparkName = 'Spark 1';
       }
 
       return {

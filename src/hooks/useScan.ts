@@ -25,7 +25,7 @@ export interface UseScanResult {
   /** Scanned tag data (when state is 'success') */
   tag: RawTagData | null;
   /** Detected transponder info (when detection succeeds) */
-  transponder: Transponder | null;
+  transponder: Transponder | null | undefined;
   /** Scan error (when state is 'error') */
   error: ScanError | null;
   /** NFC status (supported and enabled) */
@@ -45,10 +45,19 @@ export interface UseScanResult {
 /**
  * Hook for managing NFC scanning
  */
+// Combined scan result to ensure atomic updates
+interface ScanResult {
+  tag: RawTagData | null;
+  transponder: Transponder | null | undefined;
+}
+
 export function useScan(): UseScanResult {
   const [state, setState] = useState<ScanState>('idle');
-  const [tag, setTag] = useState<RawTagData | null>(null);
-  const [transponder, setTransponder] = useState<Transponder | null>(null);
+  // Use combined state to ensure tag and transponder update atomically
+  const [scanResult, setScanResult] = useState<ScanResult>({
+    tag: null,
+    transponder: undefined,
+  });
   const [error, setError] = useState<ScanError | null>(null);
   const [nfcStatus, setNfcStatus] = useState<NFCStatus>({
     isSupported: false,
@@ -93,8 +102,7 @@ export function useScan(): UseScanResult {
 
     scanInProgress.current = true;
     setState('scanning');
-    setTag(null);
-    setTransponder(null);
+    setScanResult({ tag: null, transponder: undefined });
     setError(null);
     setScanProgress({step: 'Waiting for tag...', current: 1});
 
@@ -162,11 +170,18 @@ export function useScan(): UseScanResult {
           setError(result.error);
         }
       } else if (result.tag) {
+        const detectedTransponder = result.detection ?? null;
+        console.log('[useScan] Scan complete:', {
+          hasTag: !!result.tag,
+          hasDetection: !!result.detection,
+          transponderType: detectedTransponder?.type,
+        });
+        // Update tag and transponder atomically in a single state update
+        setScanResult({
+          tag: result.tag,
+          transponder: detectedTransponder,
+        });
         setState('success');
-        setTag(result.tag);
-        if (result.detection) {
-          setTransponder(result.detection);
-        }
       } else {
         setState('error');
         setError({
@@ -201,8 +216,7 @@ export function useScan(): UseScanResult {
   // Reset state to idle
   const reset = useCallback(() => {
     setState('idle');
-    setTag(null);
-    setTransponder(null);
+    setScanResult({ tag: null, transponder: undefined });
     setError(null);
     setScanProgress(null);
   }, []);
@@ -219,8 +233,8 @@ export function useScan(): UseScanResult {
 
   return {
     state,
-    tag,
-    transponder,
+    tag: scanResult.tag,
+    transponder: scanResult.transponder,
     error,
     nfcStatus,
     scanProgress,
