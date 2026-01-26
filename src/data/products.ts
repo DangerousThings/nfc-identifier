@@ -64,6 +64,18 @@ const SLIX_COMPATIBLE: ChipType[] = [
   ChipType.SLIX_L,
 ];
 
+/**
+ * MIFARE Ultralight compatible chips (for Gen4 magic implants)
+ * Note: Ultralight AES cannot be cloned if AES protection is active
+ */
+const ULTRALIGHT_COMPATIBLE: ChipType[] = [
+  ChipType.ULTRALIGHT,
+  ChipType.ULTRALIGHT_C,
+  ChipType.ULTRALIGHT_EV1,
+  ChipType.ULTRALIGHT_NANO,
+  ChipType.ULTRALIGHT_AES,
+];
+
 export const PRODUCTS: Product[] = [
   // ==========================================================================
   // X-Series (Glass Capsule) Implants - NFC
@@ -136,8 +148,9 @@ export const PRODUCTS: Product[] = [
       'Dual-frequency',
       'NTAG216 NFC chip',
       '888 bytes user memory',
+      'URL/contact sharing',
       'T5577 125kHz chip',
-      'LF access control',
+      'Access control (LF)',
     ],
     url: 'https://dangerousthings.com/product/next/',
     canReceiveClone: true,
@@ -158,7 +171,7 @@ export const PRODUCTS: Product[] = [
       'URL/contact sharing',
       'Green, Blue, and White LEDs available (HF)',
       'T5577 125kHz chip',
-      'LF access control',
+      'Access control (LF)',
     ],
     url: 'https://dangerousthings.com/product/next-v2/',
     canReceiveClone: true,
@@ -175,14 +188,14 @@ export const PRODUCTS: Product[] = [
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
     features: [
       'Magic MIFARE Classic chip',
-      'Changeable UID',
+      'Changeable UID (4-byte)',
+      'Gen1a and gen2 magic options',
       'T5577 125kHz chip',
-      'Clone access cards',
+      'Access control (LF)',
     ],
     url: 'https://dangerousthings.com/product/xmagic/',
     canReceiveClone: true,
     exactMatch: false,
-    notes: 'Can clone MIFARE Classic cards (requires Android + keys)',
   },
 
   // ==========================================================================
@@ -200,7 +213,8 @@ export const PRODUCTS: Product[] = [
       'DESFire EV3 chip',
       '8KB memory',
       'Latest security features',
-      'Transaction MAC',
+      'Access control (HF)',
+      'URL/contact sharing',
     ],
     url: 'https://dangerousthings.com/product/xdf3/',
     canReceiveClone: false,
@@ -221,14 +235,12 @@ export const PRODUCTS: Product[] = [
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
     features: [
       'Magic MIFARE Classic 1K',
-      'Changeable UID',
-      'Clone access cards',
-      'Gen1a compatible',
+      'Gen1a and gen2 magic options',
+      'Changeable UID (4-byte)',
     ],
     url: 'https://dangerousthings.com/product/xm1/',
     canReceiveClone: true,
     exactMatch: false,
-    notes: 'Can clone MIFARE Classic 1K cards (requires Android + keys)',
   },
 
   // ==========================================================================
@@ -243,6 +255,7 @@ export const PRODUCTS: Product[] = [
     categories: [ProductCategory.SECURE],
     compatibleChips: [ChipType.NTAG424_DNA, ChipType.NTAG424_DNA_TT, ChipType.ICODE_DNA],
     features: [
+      'VivoKey Ecosystem',
       'Spark Actions',
       'Verify API',
     ],
@@ -265,9 +278,11 @@ export const PRODUCTS: Product[] = [
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
     features: [
       'NTAG216 NFC chip',
+      '888 bytes user memory',
+      'URL/contact sharing',
       'T5577 125kHz chip',
-      'Enhanced read range',
       'Bioresin encapsulation',
+      'Enhanced read range',
     ],
     url: 'https://dangerousthings.com/product/dnext/',
     canReceiveClone: true,
@@ -281,17 +296,20 @@ export const PRODUCTS: Product[] = [
       'Bioresin dual-frequency implant with Ultimate Gen4 magic MIFARE and T5577 for maximum compatibility.',
     formFactor: FormFactor.BIORESIN,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
-    compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
+    compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE, ...ULTRALIGHT_COMPATIBLE],
     features: [
       'Ultimate Gen4 magic chip',
+      'Changeable UID',
+      'Access control (HF)',
       'T5577 125kHz chip',
       'Changeable UID',
       'Enhanced cloning capability',
+      'Access control (LF)',
     ],
     url: 'https://dangerousthings.com/product/dug4t/',
     canReceiveClone: true,
     exactMatch: false,
-    notes: 'Can clone MIFARE Classic cards (requires Android + keys)',
+    notes: 'Supports 1K and 4K cloning. Also includes T5577 for LF.',
   },
 
   // ==========================================================================
@@ -308,7 +326,7 @@ export const PRODUCTS: Product[] = [
     features: [
       'NTAG216 chip',
       '888 bytes user memory',
-      'Flexible form factor',
+      'URL/contact sharing',
       'Extended read range',
     ],
     url: 'https://dangerousthings.com/product/flexnt/',
@@ -331,7 +349,7 @@ export const PRODUCTS: Product[] = [
       'DESFire EV2 chip',
       '8KB memory',
       'AES-128 encryption',
-      'Flexible form factor',
+      'URL/contact sharing',
     ],
     url: 'https://dangerousthings.com/product/flexdf2/',
     canReceiveClone: false,
@@ -343,24 +361,6 @@ export const PRODUCTS: Product[] = [
   // ==========================================================================
   // Flex Implants - Magic/Cloning
   // ==========================================================================
-  {
-    id: 'flexm1',
-    name: 'flexM1',
-    description: 'Flexible magic MIFARE Classic 1K implant for cloning access cards.',
-    formFactor: FormFactor.FLEX,
-    categories: [ProductCategory.ACCESS],
-    compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
-    features: [
-      'Magic MIFARE Classic 1K',
-      'Changeable UID',
-      'Flexible form factor',
-      'Extended read range',
-    ],
-    url: 'https://dangerousthings.com/product/flexm1/',
-    canReceiveClone: true,
-    exactMatch: false,
-    notes: 'Can clone MIFARE Classic 1K cards (requires Android + keys)',
-  },
   {
     id: 'flexm1-v2',
     name: 'flexM1 v2',
@@ -377,7 +377,6 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/flexm1-v2/',
     canReceiveClone: true,
     exactMatch: false,
-    notes: 'Can clone MIFARE Classic 1K cards (requires Android + keys)',
   },
 
   // ==========================================================================
@@ -394,9 +393,9 @@ export const PRODUCTS: Product[] = [
     features: [
       'JCOP4 secure element',
       'Fidesmo platform',
-      'Payment capable',
       'FIDO2/WebAuthn',
       'OTP support',
+      'URL/contact sharing',
     ],
     url: 'https://dangerousthings.com/product/apex-flex/',
     canReceiveClone: false,
@@ -416,6 +415,9 @@ export const PRODUCTS: Product[] = [
       'Full JavaCard access',
       'GlobalPlatformPro compatible',
       'Custom applet support',
+      'FIDO2/WebAuthn',
+      'OTP support',
+      'URL/contact sharing',
     ],
     url: 'https://dangerousthings.com/product/flexsecure/',
     canReceiveClone: false,
@@ -436,7 +438,6 @@ export const PRODUCTS: Product[] = [
     features: [
       'HID iCLASS SE compatible',
       'Enterprise access control',
-      'Flexible form factor',
     ],
     url: 'https://dangerousthings.com/product/flexclass/',
     canReceiveClone: false,
@@ -449,17 +450,16 @@ export const PRODUCTS: Product[] = [
     description: 'Flexible Ultimate Gen4 magic MIFARE implant for cloning access cards.',
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.ACCESS],
-    compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
+    compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE, ...ULTRALIGHT_COMPATIBLE],
     features: [
       'Ultimate Gen4 magic chip',
       'Changeable UID',
-      'Flexible form factor',
       'Enhanced cloning capability',
     ],
     url: 'https://dangerousthings.com/product/flexug4/',
     canReceiveClone: true,
     exactMatch: false,
-    notes: 'Can clone MIFARE Classic cards (requires Android + keys)',
+    notes: 'Supports 1K and 4K cloning.',
   },
 ];
 

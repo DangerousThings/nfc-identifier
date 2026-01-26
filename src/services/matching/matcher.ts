@@ -35,7 +35,6 @@ export function matchChipToProducts(chip: Transponder): MatchResult {
     if (product.canReceiveClone && cloneability?.cloneable) {
       if ((product.name.startsWith("xMagic") || product.name.startsWith("xM1") || product.name.startsWith("flexM1")) && chip.rawData.uid.replaceAll(":", "").length / 2 !== 4) {
         // This skips things without a 4-byte UID
-
       } else {
         cloneTargets.push(product);
       }
@@ -175,6 +174,32 @@ export function getDesfireEvLevel(chipType: ChipType): DesfireEvLevel | null {
     default:
       return null;
   }
+}
+
+/**
+ * IDs of products that only support MIFARE Classic 1K (not 4K)
+ */
+const MIFARE_1K_ONLY_PRODUCTS = new Set(['xmagic', 'xm1', 'flexm1-v2']);
+
+/**
+ * Check if a scanned 4K card is being matched to a 1K-only implant
+ * Returns warning message if capacity mismatch, null if no issue
+ */
+export function getMifareClassicCapacityWarning(
+  chipType: ChipType,
+  product: Product,
+): string | null {
+  // Only applies to MIFARE Classic 4K cards
+  if (chipType !== ChipType.MIFARE_CLASSIC_4K) {
+    return null;
+  }
+
+  // Only warn for 1K-only implants
+  if (!MIFARE_1K_ONLY_PRODUCTS.has(product.id)) {
+    return null;
+  }
+
+  return 'This implant has 1K memory only - might not have capacity to clone your 4K card.';
 }
 
 /**

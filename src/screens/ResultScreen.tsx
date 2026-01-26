@@ -3,7 +3,7 @@ import { StyleSheet, View, ScrollView, Linking, TouchableOpacity } from 'react-n
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
 import type { ResultScreenProps } from '../types/navigation';
 import { DTColors } from '../theme';
-import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning } from '../services/matching';
+import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getMifareClassicCapacityWarning } from '../services/matching';
 import { Product } from '../types/products';
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
 import { getChipFamily } from '../types/detection';
@@ -293,6 +293,13 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 {getDesfireEvMismatchWarning(transponder.type, product) && (
                   <Text variant="bodySmall" style={styles.evMismatchWarning}>
                     ⚠️ {getDesfireEvMismatchWarning(transponder.type, product)}
+                  </Text>
+                )}
+
+                {/* MIFARE Classic 4K → 1K capacity warning */}
+                {getMifareClassicCapacityWarning(transponder.type, product) && (
+                  <Text variant="bodySmall" style={styles.evMismatchWarning}>
+                    ⚠️ {getMifareClassicCapacityWarning(transponder.type, product)}
                   </Text>
                 )}
 

@@ -33,6 +33,18 @@ export interface NdefRecord {
 }
 
 /**
+ * MIFARE Classic specific info from Android
+ */
+export interface MifareClassicInfo {
+  /** Total memory size in bytes */
+  size: number;
+  /** Number of sectors */
+  sectorCount: number;
+  /** Total number of blocks */
+  blockCount: number;
+}
+
+/**
  * Raw tag data from NFC scan
  */
 export interface RawTagData {
@@ -52,6 +64,8 @@ export interface RawTagData {
   maxTransceiveLength?: number;
   /** Cached NDEF records (if tag supports NDEF) */
   ndefRecords?: NdefRecord[];
+  /** MIFARE Classic info (Android only) */
+  mifareClassic?: MifareClassicInfo;
 }
 
 /**

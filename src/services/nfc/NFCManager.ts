@@ -12,6 +12,7 @@ import type {
   ScanErrorType,
   NfcTechType,
   NdefRecord,
+  MifareClassicInfo,
 } from '../../types/nfc';
 
 /**
@@ -117,6 +118,56 @@ function parseAts(tag: TagEvent): {ats?: string; historicalBytes?: string} {
 }
 
 /**
+ * Parse MIFARE Classic info from TagEvent (Android only)
+ *
+ * Uses NDEF maxSize to determine card capacity:
+ * - 4K: maxSize ~3356 bytes (NDEF capacity)
+ * - 1K: maxSize ~716 bytes (NDEF capacity)
+ * - Mini: maxSize ~80 bytes (NDEF capacity)
+ */
+function parseMifareClassic(tag: TagEvent): MifareClassicInfo | undefined {
+  const techTypes = tag.techTypes || [];
+  const isMifareClassic = techTypes.some(t => t.includes('MifareClassic'));
+
+  if (!isMifareClassic) {
+    return undefined;
+  }
+
+  // Use NDEF maxSize to determine card type
+  // MIFARE Classic 4K has ~3356 bytes NDEF capacity
+  // MIFARE Classic 1K has ~716 bytes NDEF capacity
+  const maxSize = (tag as any).maxSize;
+
+  if (typeof maxSize === 'number' && maxSize > 0) {
+    let size: number;
+    let sectorCount: number;
+    let blockCount: number;
+
+    if (maxSize >= 2000) {
+      // 4K card (NDEF maxSize ~3356)
+      size = 4096;
+      sectorCount = 40;
+      blockCount = 256;
+    } else if (maxSize >= 500) {
+      // 1K card (NDEF maxSize ~716)
+      size = 1024;
+      sectorCount = 16;
+      blockCount = 64;
+    } else {
+      // Mini card (NDEF maxSize ~80)
+      size = 320;
+      sectorCount = 5;
+      blockCount = 20;
+    }
+
+    console.log('[NFCManager] MIFARE Classic from maxSize:', {maxSize, size, sectorCount, blockCount});
+    return {size, sectorCount, blockCount};
+  }
+
+  return undefined;
+}
+
+/**
  * Parse NDEF records from TagEvent
  */
 function parseNdefRecords(tag: TagEvent): NdefRecord[] | undefined {
@@ -167,6 +218,7 @@ function tagEventToRawData(tag: TagEvent): RawTagData {
   const atqa = parseAtqa(tag);
   const {ats, historicalBytes} = parseAts(tag);
   const ndefRecords = parseNdefRecords(tag);
+  const mifareClassic = parseMifareClassic(tag);
 
   const isoDep = (tag as any).isoDep;
   const iso7816 = (tag as any).iso7816;
@@ -204,6 +256,7 @@ function tagEventToRawData(tag: TagEvent): RawTagData {
     historicalBytes,
     maxTransceiveLength,
     ndefRecords,
+    mifareClassic,
   };
 }
 
@@ -366,7 +419,10 @@ class NFCManagerService {
         };
       }
 
-      return {tag: tagEventToRawData(tag)};
+      // Convert to RawTagData
+      const rawData = tagEventToRawData(tag);
+
+      return {tag: rawData};
     } catch (error) {
       return {error: categorizeError(error)};
     } finally {

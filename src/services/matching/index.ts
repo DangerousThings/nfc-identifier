@@ -11,4 +11,5 @@ export {
   canCloneToProduct,
   getDesfireEvLevel,
   getDesfireEvMismatchWarning,
+  getMifareClassicCapacityWarning,
 } from './matcher';

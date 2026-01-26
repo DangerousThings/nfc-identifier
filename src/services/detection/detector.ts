@@ -146,12 +146,29 @@ export async function detectChip(
 
     // If we have MifareClassic tech type and NO IsoDep, it's definitely Classic
     if (hasMifareClassicTech && !hasIsoDepTech) {
-      // Determine 1K vs 4K based on SAK or UID length
+      // Determine 1K vs 4K vs Mini
+      // Priority: mifareClassic.size (most reliable on Android) > SAK > UID length
       let chipType = ChipType.MIFARE_CLASSIC_1K; // Default to 1K
       let memorySize = 1024;
 
-      // SAK 0x18 or 0x38 indicates 4K
-      if (sak === 0x18 || sak === 0x38 || sak === 0x98) {
+      // First, check mifareClassic object from Android (most reliable)
+      if (rawData.mifareClassic?.size) {
+        const size = rawData.mifareClassic.size;
+        console.log('[Detector] Using mifareClassic.size:', size);
+        if (size >= 4096) {
+          chipType = ChipType.MIFARE_CLASSIC_4K;
+          memorySize = 4096;
+        } else if (size >= 1024) {
+          chipType = ChipType.MIFARE_CLASSIC_1K;
+          memorySize = 1024;
+        } else if (size >= 320) {
+          chipType = ChipType.MIFARE_CLASSIC_MINI;
+          memorySize = 320;
+        }
+      }
+      // Fallback to SAK-based detection
+      // SAK 0x18, 0x38, or 0x98 indicates 4K
+      else if (sak === 0x18 || sak === 0x38 || sak === 0x98) {
         chipType = ChipType.MIFARE_CLASSIC_4K;
         memorySize = 4096;
       }
@@ -233,8 +250,27 @@ export async function detectChip(
           }),
         };
       }
-      // If GET_VERSION failed but tag looks like Type 2, mark as unknown NTAG
-      if (sak === 0x00 && techTypes.some(t => t.includes('NfcA'))) {
+      // If GET_VERSION failed, check for MIFARE Ultralight
+      // Original Ultralight doesn't support GET_VERSION (only EV1+ does)
+      // SAK can be 0x00 or undefined for Ultralight
+      if ((sak === 0x00 || sak === undefined) && techTypes.some(t => t.includes('NfcA'))) {
+        // Check for MifareUltralight tech type (Android provides this)
+        const hasMifareUltralightTech = techTypes.some(t =>
+          t.includes('MifareUltralight'),
+        );
+
+        if (hasMifareUltralightTech) {
+          console.log('[Detector] MifareUltralight tech detected, identifying as original Ultralight');
+          return {
+            success: true,
+            transponder: createTransponder(ChipType.ULTRALIGHT, rawData, {
+              memorySize: 48, // Original Ultralight has 48 bytes user memory
+              confidence: 'medium',
+            }),
+          };
+        }
+
+        // No MifareUltralight tech - fall back to unknown NTAG
         console.log('[Detector] NTAG detection failed, falling back to NTAG_UNKNOWN');
         return {
           success: true,

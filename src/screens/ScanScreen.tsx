@@ -1,13 +1,13 @@
-import React, {useCallback, useEffect} from 'react';
-import {StyleSheet, View, Platform} from 'react-native';
-import {Button, Text} from 'react-native-paper';
-import type {ScanScreenProps} from '../types/navigation';
-import {DTColors} from '../theme';
-import {useScan} from '../hooks';
-import {getScanInstructions} from '../services/nfc';
-import {ScanAnimation} from '../components';
+import React, { useCallback, useEffect } from 'react';
+import { StyleSheet, View, Platform } from 'react-native';
+import { Button, Text } from 'react-native-paper';
+import type { ScanScreenProps } from '../types/navigation';
+import { DTColors } from '../theme';
+import { useScan } from '../hooks';
+import { getScanInstructions } from '../services/nfc';
+import { ScanAnimation } from '../components';
 
-export function ScanScreen({navigation}: ScanScreenProps) {
+export function ScanScreen({ navigation }: ScanScreenProps) {
   const {
     state,
     tag,
@@ -193,6 +193,12 @@ export function ScanScreen({navigation}: ScanScreenProps) {
             </Text>
             <Text variant="bodyLarge" style={styles.instructionText}>
               {getScanInstructions()}
+            </Text>
+            <Text variant="headlineSmall" style={{ paddingTop: 15, paddingBottom: 10 }}>
+              Not Scanning?
+            </Text>
+            <Text variant="bodyLarge" style={styles.instructionText}>
+              Phones can only read high frequency (13.56 MHz) -- low and ultra high frequency transponders cannot be scanned.
             </Text>
             {scanProgress && scanProgress.current > 1 && (
               <Text variant="bodySmall" style={styles.progressText}>

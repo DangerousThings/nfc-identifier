@@ -207,7 +207,8 @@ export async function transceiveNfcA(command: number[]): Promise<number[]> {
     const response = await NfcManager.nfcAHandler.transceive(command);
     return Array.from(response);
   } catch (error) {
-    console.error('[commands] NfcA transceive failed:', error);
+    // Use debug level - some failures are expected (e.g., GET_VERSION on original Ultralight)
+    console.debug('[commands] NfcA transceive failed:', error);
     throw error;
   }
 }

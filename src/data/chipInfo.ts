@@ -79,6 +79,40 @@ export const CHIP_INFO: Partial<Record<ChipType, ChipInfo>> = {
     memoryNote: '1904 bytes user memory',
   },
 
+  // MIFARE Ultralight family
+  [ChipType.ULTRALIGHT]: {
+    description:
+      'Original MIFARE Ultralight - a simple, low-cost NFC tag with minimal memory.',
+    commonUses: ['Single-use tickets', 'Event passes', 'Disposable tags'],
+    capabilities: ['NFC Forum Type 2', 'OTP area', 'Lock bits'],
+    securityLevel: 'low',
+    memoryNote: '48 bytes user memory',
+  },
+  [ChipType.ULTRALIGHT_C]: {
+    description:
+      'Ultralight with 3DES authentication for basic security applications.',
+    commonUses: ['Limited-use tickets', 'Access tokens', 'Loyalty cards'],
+    capabilities: ['NFC Forum Type 2', '3DES authentication', 'Counter'],
+    securityLevel: 'medium',
+    memoryNote: '144 bytes user memory',
+  },
+  [ChipType.ULTRALIGHT_EV1]: {
+    description:
+      'Enhanced Ultralight with password protection and originality check.',
+    commonUses: ['Event tickets', 'Brand protection', 'Gaming tokens'],
+    capabilities: ['Password protection', 'Originality signature', 'Counter'],
+    securityLevel: 'low',
+    memoryNote: '48 or 128 bytes user memory',
+  },
+  [ChipType.ULTRALIGHT_AES]: {
+    description:
+      'Ultralight with AES-128 authentication for secure applications.',
+    commonUses: ['Secure tickets', 'Brand protection', 'Limited-use passes'],
+    capabilities: ['AES-128 authentication', 'Counter', 'Originality signature'],
+    securityLevel: 'high',
+    memoryNote: '540 bytes user memory',
+  },
+
   // MIFARE Classic
   [ChipType.MIFARE_CLASSIC_1K]: {
     description:
