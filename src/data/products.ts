@@ -97,6 +97,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/xnt/',
     canReceiveClone: true,
     exactMatch: true,
+    notes: "UID cannot be changed"
   },
   {
     id: 'xsiid',
@@ -115,6 +116,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/xsiid/',
     canReceiveClone: true,
     exactMatch: true,
+    notes: "UID cannot be changed"
   },
   {
     id: 'xslx',
@@ -131,6 +133,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/xslx/',
     canReceiveClone: true,
     exactMatch: true,
+    notes: "UID cannot be changed"
   },
 
   // ==========================================================================
@@ -155,7 +158,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/next/',
     canReceiveClone: true,
     exactMatch: true,
-    notes: 'Also includes T5577 for 125kHz access systems',
+    notes: 'HF UID cannot be changed. Also includes T5577 for 125kHz access systems',
   },
   {
     id: 'next-v2',
@@ -176,7 +179,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/next-v2/',
     canReceiveClone: true,
     exactMatch: true,
-    notes: 'Also includes T5577 for 125kHz access systems',
+    notes: 'HF UID cannot be changed. Also includes T5577 for 125kHz access systems',
   },
   {
     id: 'xmagic',
@@ -219,7 +222,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/xdf3/',
     canReceiveClone: false,
     exactMatch: true,
-    notes: 'Cannot clone data due to cryptographic protection',
+    notes: 'UID cannot be changed. Cannot clone data due to cryptographic protection',
     desfireEvLevel: 3,
   },
 
@@ -262,7 +265,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/vivokey-spark/',
     canReceiveClone: false,
     exactMatch: true,
-    notes: 'Uses cryptographic authentication - cannot clone',
+    notes: 'UID cannot be changed. Uses cryptographic authentication - cannot clone',
   },
 
   // ==========================================================================
@@ -287,7 +290,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/dnext/',
     canReceiveClone: true,
     exactMatch: true,
-    notes: 'Larger size provides improved performance over x-series',
+    notes: 'HF UID cannot be changed. Larger size provides improved performance over x-series',
   },
   {
     id: 'dug4t',
@@ -332,6 +335,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/flexnt/',
     canReceiveClone: true,
     exactMatch: true,
+    notes: "UID cannot be changed"
   },
 
   // ==========================================================================
@@ -354,7 +358,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/flexdf2/',
     canReceiveClone: false,
     exactMatch: true,
-    notes: 'Cannot clone data due to cryptographic protection',
+    notes: 'UID cannot be changed. Cannot clone data due to cryptographic protection',
     desfireEvLevel: 2,
   },
 
@@ -400,7 +404,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/apex-flex/',
     canReceiveClone: false,
     exactMatch: true,
-    notes: 'Cannot clone - programmable via Fidesmo app',
+    notes: 'UID cannot be changed. Cannot clone - programmable via Fidesmo app',
   },
   {
     id: 'flexsecure',
@@ -422,7 +426,7 @@ export const PRODUCTS: Product[] = [
     url: 'https://dangerousthings.com/product/flexsecure/',
     canReceiveClone: false,
     exactMatch: true,
-    notes: 'Developer-focused - requires technical knowledge',
+    notes: 'UID cannot be changed. Developer-focused - requires technical knowledge',
   },
 
   // ==========================================================================

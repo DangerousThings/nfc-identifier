@@ -1,7 +1,43 @@
-import React, { useMemo, useState } from 'react';
-import { StyleSheet, View, ScrollView, Linking, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, ScrollView, Linking, TouchableOpacity, Animated } from 'react-native';
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
 import { DTCard, DTButton, DTColors, DTLabel, DTChip } from 'react-native-dt-theme';
+
+// Animated section wrapper for staggered entry
+interface AnimatedSectionProps {
+  children: React.ReactNode;
+  delay: number;
+  duration?: number;
+  style?: any;
+}
+
+function AnimatedSection({ children, delay, duration = 400, style }: AnimatedSectionProps) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration,
+        delay,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration,
+        delay,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [delay, duration, opacity, translateY]);
+
+  return (
+    <Animated.View style={[{ opacity, transform: [{ translateY }] }, style]}>
+      {children}
+    </Animated.View>
+  );
+}
 import type { ResultScreenProps } from '../types/navigation';
 import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getMifareClassicCapacityWarning } from '../services/matching';
 import { Product } from '../types/products';
@@ -28,6 +64,36 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     if (!transponder) return null;
     return getChipFamilyInfo(getChipFamily(transponder.type));
   }, [transponder]);
+
+  // Calculate product count for animation timing
+  const productCount = useMemo(() => {
+    if (!matchResult) return 0;
+    const exactCount = matchResult.exactMatches.length;
+    const cloneCount = matchResult.cloneTargets.filter(
+      p => !matchResult.exactMatches.find(e => e.id === p.id)
+    ).length;
+    return exactCount + cloneCount;
+  }, [matchResult]);
+
+  // Animation delays - sequential flow
+  const delays = useMemo(() => {
+    const base = {
+      chipIdentified: 0,
+      aboutChip: 150,
+      compatibleLabel: 300,
+      productBase: 450,
+      productIncrement: 150,
+    };
+    const afterProducts = base.productBase + (productCount * base.productIncrement);
+    return {
+      ...base,
+      noMatch: base.compatibleLabel, // Shows in place of products
+      sakSwap: base.aboutChip, // Shows after chip info
+      rawData: productCount > 0 ? afterProducts : 300,
+      actions: productCount > 0 ? afterProducts + 150 : 450,
+      conversion: productCount > 0 ? afterProducts + 75 : 375, // Between raw data and actions
+    };
+  }, [productCount]);
 
   // Build URL with UTM tracking parameters for analytics
   const buildTrackedUrl = (baseUrl: string, content?: string) => {
@@ -72,83 +138,87 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
       <View style={styles.content}>
         {/* Chip Identification Card */}
         {transponder && (
-          <DTCard mode="success" title="CHIP IDENTIFIED" style={{ marginBottom: 20 }}>
+          <AnimatedSection delay={delays.chipIdentified}>
+            <DTCard mode="success" title="CHIP IDENTIFIED" style={{ marginBottom: 20 }}>
 
-            <Text variant="headlineMedium" style={styles.chipName}>
-              {transponder.chipName}
-            </Text>
+              <Text variant="headlineMedium" style={styles.chipName}>
+                {transponder.chipName}
+              </Text>
 
-            {/* Show implant name if detected from memory, or payment device */}
-            {transponder.implantName && (
-              transponder.implantName.includes('Payment Card') ? (
-                <View style={styles.paymentDeviceRow}>
-                  <Text variant="labelMedium" style={styles.paymentDeviceLabel}>
-                    PAYMENT DEVICE DETECTED
-                  </Text>
-                  <Text variant="titleLarge" style={styles.paymentDeviceValue}>
-                    {transponder.implantName.replace(' Payment Card', '')}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.implantNameRow}>
-                  <Text variant="labelMedium" style={styles.implantNameLabel}>
-                    IMPLANT DETECTED
-                  </Text>
-                  <Text variant="titleLarge" style={styles.implantNameValue}>
-                    {transponder.implantName}
-                  </Text>
-                </View>
-              )
-            )}
-
-            <View style={styles.chipMeta}>
-              <Chip
-                style={[styles.familyChip, { borderColor: DTColors.modeNormal }]}
-                textStyle={styles.familyChipText}>
-                {transponder.family}
-              </Chip>
-              {getConfidenceLabel() && (
-                <Chip
-                  style={[styles.confidenceChip, { borderColor: getConfidenceLabel()!.color }]}
-                  textStyle={[styles.confidenceChipText, { color: getConfidenceLabel()!.color }]}>
-                  {getConfidenceLabel()!.label}
-                </Chip>
+              {/* Show implant name if detected from memory, or payment device */}
+              {transponder.implantName && (
+                transponder.implantName.includes('Payment Card') ? (
+                  <View style={styles.paymentDeviceRow}>
+                    <Text variant="labelMedium" style={styles.paymentDeviceLabel}>
+                      PAYMENT DEVICE DETECTED
+                    </Text>
+                    <Text variant="titleLarge" style={styles.paymentDeviceValue}>
+                      {transponder.implantName.replace(' Payment Card', '')}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.implantNameRow}>
+                    <Text variant="labelMedium" style={styles.implantNameLabel}>
+                      IMPLANT DETECTED
+                    </Text>
+                    <Text variant="titleLarge" style={styles.implantNameValue}>
+                      {transponder.implantName}
+                    </Text>
+                  </View>
+                )
               )}
-            </View>
 
-            {transponder.memorySize && (
+              <View style={styles.chipMeta}>
+                <DTChip
+                  variant="normal">
+                  {transponder.family}
+                </DTChip>
+                {getConfidenceLabel() && (
+                  <DTChip
+                    variant='other'
+                  // style={[styles.confidenceChip, { borderColor: getConfidenceLabel()!.color }]}
+                  // textStyle={[styles.confidenceChipText, { color: getConfidenceLabel()!.color }]}>
+                  >
+                    {getConfidenceLabel()!.label}
+                  </DTChip>
+                )}
+              </View>
+
+              {transponder.memorySize && (
+                <View style={styles.detailRow}>
+                  <Text variant="bodyMedium" style={styles.detailLabel}>
+                    MEMORY
+                  </Text>
+                  <Text variant="bodyLarge" style={styles.detailValue}>
+                    {transponder.memorySize} bytes
+                  </Text>
+                </View>
+              )}
+
               <View style={styles.detailRow}>
                 <Text variant="bodyMedium" style={styles.detailLabel}>
-                  MEMORY
+                  CLONEABLE
                 </Text>
-                <Text variant="bodyLarge" style={styles.detailValue}>
-                  {transponder.memorySize} bytes
+                <Text
+                  variant="bodyLarge"
+                  style={[styles.detailValue, { color: getCloneabilityColor() }]}>
+                  {transponder.isCloneable ? 'YES' : 'NO'}
                 </Text>
               </View>
-            )}
 
-            <View style={styles.detailRow}>
-              <Text variant="bodyMedium" style={styles.detailLabel}>
-                CLONEABLE
-              </Text>
-              <Text
-                variant="bodyLarge"
-                style={[styles.detailValue, { color: getCloneabilityColor() }]}>
-                {transponder.isCloneable ? 'YES' : 'NO'}
-              </Text>
-            </View>
-
-            {transponder.cloneabilityNote && (
-              <Text variant="bodySmall" style={styles.cloneabilityNote}>
-                {transponder.cloneabilityNote}
-              </Text>
-            )}
-          </DTCard>
+              {transponder.cloneabilityNote && (
+                <Text variant="bodySmall" style={styles.cloneabilityNote}>
+                  {transponder.cloneabilityNote}
+                </Text>
+              )}
+            </DTCard>
+          </AnimatedSection>
         )}
 
         {/* Educational Chip Info Card */}
         {transponder && (chipInfo || chipFamilyInfo) && (
-          <Surface style={styles.chipInfoCard} elevation={1}>
+          <AnimatedSection delay={delays.aboutChip}>
+            <Surface style={styles.chipInfoCard} elevation={1}>
             <TouchableOpacity
               onPress={() => setShowChipInfo(!showChipInfo)}
               style={styles.chipInfoHeader}
@@ -245,28 +315,23 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               </>
             )}
           </Surface>
+          </AnimatedSection>
         )}
 
         {/* Product Matches Card - hide for payment devices */}
         {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
-          // <Surface style={styles.productsCard} elevation={1}>
-          <>
-            {/* <Text variant="labelLarge" style={styles.productsLabel}>
-              COMPATIBLE IMPLANTS
-            </Text> */}
-            <DTLabel mode='emphasis' primaryText="Compatible Implants" />
-            {/* <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} /> */}
+          <AnimatedSection delay={delays.compatibleLabel}>
+            <DTLabel mode='emphasis' primaryText="Compatible Implants" style={{ marginBottom: 25, }} size="large" animated={false} />
+          </AnimatedSection>
+        )}
 
-            {/* <Text variant="bodyMedium" style={styles.matchSummary}>
-              {getMatchSummary(matchResult, transponder.chipName)}
-            </Text> */}
-
-            {/* Exact Matches / Clone Targets */}
-            {[...matchResult.exactMatches, ...matchResult.cloneTargets.filter(
-              p => !matchResult.exactMatches.find(e => e.id === p.id)
-            )].map(product => (
-              // <Surface key={product.id} style={styles.productItem} elevation={0}>
-              <DTCard mode='emphasis' title={product.name} style={{ paddingBottom: 10 }}>
+        {/* Individual Product Cards - staggered */}
+        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
+          [...matchResult.exactMatches, ...matchResult.cloneTargets.filter(
+            p => !matchResult.exactMatches.find(e => e.id === p.id)
+          )].map((product, index) => (
+            <AnimatedSection key={product.id} delay={delays.productBase + (index * delays.productIncrement)}>
+              <DTCard mode='emphasis' title={product.name} style={{ marginBottom: 25 }}>
                 <View style={styles.productHeader}>
                   {/* <Text variant="titleMedium" style={styles.productName}>
                     {product.name}
@@ -311,24 +376,20 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 </View>
 
                 <DTButton
-                  mode="outlined"
                   onPress={() => handleProductLink(product)}
-                  style={styles.productButton}
-                  labelStyle={styles.productButtonLabel}
-                  compact>
+                >
                   VIEW PRODUCT
 
                 </DTButton>
               </DTCard>
-
-            ))}
-            {/* </Surface> */}
-          </>
+            </AnimatedSection>
+          ))
         )}
 
         {/* No Match Card - show when chip detected but no products match */}
         {transponder && matchResult && matchResult.exactMatches.length === 0 && matchResult.cloneTargets.length === 0 && (
-          <Surface style={styles.noMatchCard} elevation={1}>
+          <AnimatedSection delay={delays.noMatch}>
+            <Surface style={styles.noMatchCard} elevation={1}>
             <Text variant="labelLarge" style={styles.noMatchLabel}>
               NO DIRECT MATCH
             </Text>
@@ -351,11 +412,13 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               </>
             )}
           </Surface>
+          </AnimatedSection>
         )}
 
         {/* SAK Swap Detection Card */}
         {transponder?.sakSwapInfo?.hasSakSwap && (
-          <Surface style={styles.sakSwapCard} elevation={1}>
+          <AnimatedSection delay={delays.sakSwap}>
+            <Surface style={styles.sakSwapCard} elevation={1}>
             <Text variant="labelLarge" style={styles.sakSwapLabel}>
               SAK SWAP DETECTED
             </Text>
@@ -379,29 +442,34 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               </View>
             )}
           </Surface>
+          </AnimatedSection>
         )}
 
         {/* Raw Tag Data Card */}
-        <DTCard mode="normal" title="RAW TAG DATA" style={{ marginBottom: 20 }}>
+        <AnimatedSection delay={delays.rawData}>
+          <DTCard mode="normal" title="RAW TAG DATA" style={{ marginBottom: 20 }}>
 
           {tagData ? (
             <>
               <View style={styles.dataRow}>
-                <Text variant="bodyMedium" style={styles.dataLabel}>
+                <Text variant="bodyLarge" style={styles.dataLabel}>
                   UID
                 </Text>
-                <Text variant="bodyLarge" style={styles.dataValue}>
+                <Text variant="bodyMedium" style={styles.dataValue}>
                   {tagData.uid || 'N/A'}
                 </Text>
               </View>
 
               <View style={styles.dataRow}>
-                <Text variant="bodyMedium" style={styles.dataLabel}>
+                <Text variant="bodyLarge" style={styles.dataLabel}>
                   TECHNOLOGIES
                 </Text>
-                <Text variant="bodyLarge" style={styles.dataValue}>
-                  {tagData.techTypes.join(', ') || 'N/A'}
-                </Text>
+                {
+                  tagData.techTypes.map((t, i) =>
+                    <Text key={i} variant="bodyMedium" style={styles.dataValue}>
+                      {t}
+                    </Text>)
+                }
               </View>
 
               {tagData.sak !== undefined && (
@@ -443,10 +511,12 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
             </Text>
           )}
         </DTCard>
+        </AnimatedSection>
 
         {/* No Detection Card (fallback) */}
         {!transponder && (
-          <Surface style={styles.noDetectionCard} elevation={1}>
+          <AnimatedSection delay={0}>
+            <Surface style={styles.noDetectionCard} elevation={1}>
             <Text variant="labelLarge" style={styles.noDetectionLabel}>
               CHIP NOT IDENTIFIED
             </Text>
@@ -457,57 +527,60 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
             <Text variant="bodyMedium" style={styles.noDetectionText}>
               Need help? Ask on our forum for assistance.
             </Text>
-            <Button
-              mode="outlined"
+            <DTButton
               onPress={() => Linking.openURL(buildTrackedUrl('https://dngr.us/forum', 'unknown_chip'))}
-              style={styles.forumButton}
-              labelStyle={styles.forumButtonLabel}>
+            >
               VISIT FORUM
-            </Button>
+            </DTButton>
           </Surface>
+          </AnimatedSection>
         )}
 
         {/* Conversion Service Card - show for payment devices, or when recommended (but NOT for unidentified chips) */}
         {transponder && (transponder?.implantName?.includes('Payment Card') ||
           (matchResult?.conversionRecommended && !transponder?.implantName)) && (
-            <Surface style={styles.conversionCard} elevation={1}>
-              <Text variant="bodyMedium" style={styles.conversionText}>
-                {transponder?.implantName?.includes('Payment Card')
-                  ? "Payment cards can't be copied/cloned to implants. Our conversion service might be an option."
-                  : !transponder
-                    ? 'Unknown chip? Our conversion service can help.'
-                    : matchResult?.isCloneable === false
-                      ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
-                      : "No direct product match found. Our conversion service can help."}
-              </Text>
-              <Button
-                mode="outlined"
-                onPress={handleConversionLink}
-                style={styles.conversionButton}
-                labelStyle={styles.conversionButtonLabel}>
-                CONVERSION SERVICE
-              </Button>
-            </Surface>
+            <AnimatedSection delay={delays.conversion}>
+              <Surface style={styles.conversionCard} elevation={1}>
+                <Text variant="bodyMedium" style={styles.conversionText}>
+                  {transponder?.implantName?.includes('Payment Card')
+                    ? "Payment cards can't be copied/cloned to implants. Our conversion service might be an option."
+                    : !transponder
+                      ? 'Unknown chip? Our conversion service can help.'
+                      : matchResult?.isCloneable === false
+                        ? "This chip uses cryptographic protection and can't be cloned. Our conversion service can help find alternatives."
+                        : "No direct product match found. Our conversion service can help."}
+                </Text>
+                <Button
+                  mode="outlined"
+                  onPress={handleConversionLink}
+                  style={styles.conversionButton}
+                  labelStyle={styles.conversionButtonLabel}>
+                  CONVERSION SERVICE
+                </Button>
+              </Surface>
+            </AnimatedSection>
           )}
 
         {/* Action Buttons */}
-        <View style={styles.actions}>
-          <DTButton
-            variant="normal"
-            onPress={() => navigation.navigate('Scan')}
-            style={{ width: '100%' }}>
-            SCAN ANOTHER
-          </DTButton>
+        <AnimatedSection delay={delays.actions}>
+          <View style={styles.actions}>
+            <DTButton
+              variant="normal"
+              onPress={() => navigation.navigate('Scan')}
+              style={{ width: '100%' }}>
+              SCAN ANOTHER
+            </DTButton>
 
-          <Button
-            mode="text"
-            onPress={() => navigation.navigate('Home')}
-            labelStyle={styles.homeLabel}>
-            HOME
-          </Button>
-        </View>
+            <Button
+              mode="text"
+              onPress={() => navigation.navigate('Home')}
+              labelStyle={styles.homeLabel}>
+              HOME
+            </Button>
+          </View>
+        </AnimatedSection>
       </View>
-    </ScrollView>
+    </ScrollView >
   );
 }
 
