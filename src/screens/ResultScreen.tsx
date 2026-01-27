@@ -219,102 +219,102 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         {transponder && (chipInfo || chipFamilyInfo) && (
           <AnimatedSection delay={delays.aboutChip}>
             <Surface style={styles.chipInfoCard} elevation={1}>
-            <TouchableOpacity
-              onPress={() => setShowChipInfo(!showChipInfo)}
-              style={styles.chipInfoHeader}
-              activeOpacity={0.7}>
-              <Text variant="labelLarge" style={styles.chipInfoLabel}>
-                ABOUT THIS CHIP
-              </Text>
-              <Text style={styles.expandIndicator}>
-                {showChipInfo ? '▼' : '▶'}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowChipInfo(!showChipInfo)}
+                style={styles.chipInfoHeader}
+                activeOpacity={0.7}>
+                <Text variant="labelLarge" style={styles.chipInfoLabel}>
+                  ABOUT THIS CHIP
+                </Text>
+                <Text style={styles.expandIndicator}>
+                  {showChipInfo ? '▼' : '▶'}
+                </Text>
+              </TouchableOpacity>
 
-            {showChipInfo && (
-              <>
-                <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
+              {showChipInfo && (
+                <>
+                  <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
 
-                {/* Family description */}
-                {chipFamilyInfo && (
-                  <Text variant="bodyMedium" style={styles.chipFamilyDescription}>
-                    {chipFamilyInfo}
-                  </Text>
-                )}
-
-                {/* Detailed chip info */}
-                {chipInfo && (
-                  <>
-                    <Text variant="bodyMedium" style={styles.chipDescription}>
-                      {chipInfo.description}
+                  {/* Family description */}
+                  {chipFamilyInfo && (
+                    <Text variant="bodyMedium" style={styles.chipFamilyDescription}>
+                      {chipFamilyInfo}
                     </Text>
+                  )}
 
-                    {chipInfo.memoryNote && (
+                  {/* Detailed chip info */}
+                  {chipInfo && (
+                    <>
+                      <Text variant="bodyMedium" style={styles.chipDescription}>
+                        {chipInfo.description}
+                      </Text>
+
+                      {chipInfo.memoryNote && (
+                        <View style={styles.chipInfoRow}>
+                          <Text variant="bodySmall" style={styles.chipInfoRowLabel}>
+                            Memory:
+                          </Text>
+                          <Text variant="bodySmall" style={styles.chipInfoRowValue}>
+                            {chipInfo.memoryNote}
+                          </Text>
+                        </View>
+                      )}
+
                       <View style={styles.chipInfoRow}>
                         <Text variant="bodySmall" style={styles.chipInfoRowLabel}>
-                          Memory:
+                          Security:
                         </Text>
-                        <Text variant="bodySmall" style={styles.chipInfoRowValue}>
-                          {chipInfo.memoryNote}
+                        <Text
+                          variant="bodySmall"
+                          style={[
+                            styles.chipInfoRowValue,
+                            {
+                              color:
+                                chipInfo.securityLevel === 'high'
+                                  ? DTColors.modeSuccess
+                                  : chipInfo.securityLevel === 'medium'
+                                    ? DTColors.modeEmphasis
+                                    : DTColors.modeWarning,
+                            },
+                          ]}>
+                          {chipInfo.securityLevel.toUpperCase()}
                         </Text>
                       </View>
-                    )}
 
-                    <View style={styles.chipInfoRow}>
-                      <Text variant="bodySmall" style={styles.chipInfoRowLabel}>
-                        Security:
+                      <Text variant="bodySmall" style={styles.securityNote}>
+                        {getSecurityLevelDescription(chipInfo.securityLevel)}
                       </Text>
-                      <Text
-                        variant="bodySmall"
-                        style={[
-                          styles.chipInfoRowValue,
-                          {
-                            color:
-                              chipInfo.securityLevel === 'high'
-                                ? DTColors.modeSuccess
-                                : chipInfo.securityLevel === 'medium'
-                                  ? DTColors.modeEmphasis
-                                  : DTColors.modeWarning,
-                          },
-                        ]}>
-                        {chipInfo.securityLevel.toUpperCase()}
-                      </Text>
-                    </View>
 
-                    <Text variant="bodySmall" style={styles.securityNote}>
-                      {getSecurityLevelDescription(chipInfo.securityLevel)}
-                    </Text>
-
-                    {chipInfo.commonUses.length > 0 && (
-                      <>
-                        <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
-                          COMMON USES
-                        </Text>
-                        {chipInfo.commonUses.map((use, idx) => (
-                          <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
-                            • {use}
+                      {chipInfo.commonUses.length > 0 && (
+                        <>
+                          <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
+                            COMMON USES
                           </Text>
-                        ))}
-                      </>
-                    )}
+                          {chipInfo.commonUses.map((use, idx) => (
+                            <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
+                              • {use}
+                            </Text>
+                          ))}
+                        </>
+                      )}
 
-                    {chipInfo.capabilities.length > 0 && (
-                      <>
-                        <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
-                          CAPABILITIES
-                        </Text>
-                        {chipInfo.capabilities.map((cap, idx) => (
-                          <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
-                            • {cap}
+                      {chipInfo.capabilities.length > 0 && (
+                        <>
+                          <Text variant="labelSmall" style={styles.chipInfoSectionLabel}>
+                            CAPABILITIES
                           </Text>
-                        ))}
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </Surface>
+                          {chipInfo.capabilities.map((cap, idx) => (
+                            <Text key={idx} variant="bodySmall" style={styles.chipInfoListItem}>
+                              • {cap}
+                            </Text>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </Surface>
           </AnimatedSection>
         )}
 
@@ -341,6 +341,9 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                     textStyle={styles.formFactorChipText}>
                     {product.formFactor.replace('_', ' ')}
                   </DTChip>
+                  {product.formFactor.startsWith("X") && <Text style={styles.chipDescription}>Injectable</Text>}
+                  {product.formFactor.startsWith("B") && <Text style={styles.chipDescription}>Large, rigid</Text>}
+                  {product.formFactor.startsWith("F") && <Text style={styles.chipDescription}>Large, semi-rigid</Text>}
                 </View>
 
                 <Text variant="bodySmall" style={styles.productDescription}>
@@ -390,28 +393,28 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         {transponder && matchResult && matchResult.exactMatches.length === 0 && matchResult.cloneTargets.length === 0 && (
           <AnimatedSection delay={delays.noMatch}>
             <Surface style={styles.noMatchCard} elevation={1}>
-            <Text variant="labelLarge" style={styles.noMatchLabel}>
-              NO DIRECT MATCH
-            </Text>
-            <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
+              <Text variant="labelLarge" style={styles.noMatchLabel}>
+                NO DIRECT MATCH
+              </Text>
+              <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
 
-            <Text variant="bodyMedium" style={styles.noMatchText}>
-              {getMatchSummary(matchResult, transponder.chipName)}
-            </Text>
+              <Text variant="bodyMedium" style={styles.noMatchText}>
+                {getMatchSummary(matchResult, transponder.chipName)}
+              </Text>
 
-            {matchResult.familyMatches.length > 0 && (
-              <>
-                <Text variant="bodySmall" style={styles.familyMatchesLabel}>
-                  Related products in the same chip family:
-                </Text>
-                {matchResult.familyMatches.slice(0, 2).map(product => (
-                  <Text key={product.id} variant="bodySmall" style={styles.familyMatchItem}>
-                    • {product.name}
+              {matchResult.familyMatches.length > 0 && (
+                <>
+                  <Text variant="bodySmall" style={styles.familyMatchesLabel}>
+                    Related products in the same chip family:
                   </Text>
-                ))}
-              </>
-            )}
-          </Surface>
+                  {matchResult.familyMatches.slice(0, 2).map(product => (
+                    <Text key={product.id} variant="bodySmall" style={styles.familyMatchItem}>
+                      • {product.name}
+                    </Text>
+                  ))}
+                </>
+              )}
+            </Surface>
           </AnimatedSection>
         )}
 
@@ -419,29 +422,29 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         {transponder?.sakSwapInfo?.hasSakSwap && (
           <AnimatedSection delay={delays.sakSwap}>
             <Surface style={styles.sakSwapCard} elevation={1}>
-            <Text variant="labelLarge" style={styles.sakSwapLabel}>
-              SAK SWAP DETECTED
-            </Text>
-            <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
+              <Text variant="labelLarge" style={styles.sakSwapLabel}>
+                SAK SWAP DETECTED
+              </Text>
+              <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
 
-            <Text variant="bodyLarge" style={styles.sakSwapType}>
-              {transponder.sakSwapInfo.swapType?.replace(/_/g, ' ').toUpperCase()}
-            </Text>
+              <Text variant="bodyLarge" style={styles.sakSwapType}>
+                {transponder.sakSwapInfo.swapType?.replace(/_/g, ' ').toUpperCase()}
+              </Text>
 
-            <Text variant="bodyMedium" style={styles.sakSwapDescription}>
-              {transponder.sakSwapInfo.description}
-            </Text>
+              <Text variant="bodyMedium" style={styles.sakSwapDescription}>
+                {transponder.sakSwapInfo.description}
+              </Text>
 
-            {transponder.sakSwapInfo.notes && transponder.sakSwapInfo.notes.length > 0 && (
-              <View style={styles.sakSwapNotes}>
-                {transponder.sakSwapInfo.notes.map((note, index) => (
-                  <Text key={index} variant="bodySmall" style={styles.sakSwapNote}>
-                    • {note}
-                  </Text>
-                ))}
-              </View>
-            )}
-          </Surface>
+              {transponder.sakSwapInfo.notes && transponder.sakSwapInfo.notes.length > 0 && (
+                <View style={styles.sakSwapNotes}>
+                  {transponder.sakSwapInfo.notes.map((note, index) => (
+                    <Text key={index} variant="bodySmall" style={styles.sakSwapNote}>
+                      • {note}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </Surface>
           </AnimatedSection>
         )}
 
@@ -449,90 +452,90 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         <AnimatedSection delay={delays.rawData}>
           <DTCard mode="normal" title="RAW TAG DATA" style={{ marginBottom: 20 }}>
 
-          {tagData ? (
-            <>
-              <View style={styles.dataRow}>
-                <Text variant="bodyLarge" style={styles.dataLabel}>
-                  UID
-                </Text>
-                <Text variant="bodyMedium" style={styles.dataValue}>
-                  {tagData.uid || 'N/A'}
-                </Text>
-              </View>
-
-              <View style={styles.dataRow}>
-                <Text variant="bodyLarge" style={styles.dataLabel}>
-                  TECHNOLOGIES
-                </Text>
-                {
-                  tagData.techTypes.map((t, i) =>
-                    <Text key={i} variant="bodyMedium" style={styles.dataValue}>
-                      {t}
-                    </Text>)
-                }
-              </View>
-
-              {tagData.sak !== undefined && (
+            {tagData ? (
+              <>
                 <View style={styles.dataRow}>
-                  <Text variant="bodyMedium" style={styles.dataLabel}>
-                    SAK
+                  <Text variant="bodyLarge" style={styles.dataLabel}>
+                    UID
                   </Text>
-                  <Text variant="bodyLarge" style={styles.dataValue}>
-                    0x{tagData.sak.toString(16).toUpperCase().padStart(2, '0')}
+                  <Text variant="bodyMedium" style={styles.dataValue}>
+                    {tagData.uid || 'N/A'}
                   </Text>
                 </View>
-              )}
 
-              {tagData.atqa && (
                 <View style={styles.dataRow}>
-                  <Text variant="bodyMedium" style={styles.dataLabel}>
-                    ATQA
+                  <Text variant="bodyLarge" style={styles.dataLabel}>
+                    TECHNOLOGIES
                   </Text>
-                  <Text variant="bodyLarge" style={styles.dataValue}>
-                    {tagData.atqa}
-                  </Text>
+                  {
+                    tagData.techTypes.map((t, i) =>
+                      <Text key={i} variant="bodyMedium" style={styles.dataValue}>
+                        {t}
+                      </Text>)
+                  }
                 </View>
-              )}
 
-              {tagData.historicalBytes && (
-                <View style={styles.dataRow}>
-                  <Text variant="bodyMedium" style={styles.dataLabel}>
-                    HISTORICAL BYTES
-                  </Text>
-                  <Text variant="bodyLarge" style={styles.dataValue}>
-                    {tagData.historicalBytes}
-                  </Text>
-                </View>
-              )}
-            </>
-          ) : (
-            <Text variant="bodyLarge" style={styles.noData}>
-              No tag data available
-            </Text>
-          )}
-        </DTCard>
+                {tagData.sak !== undefined && (
+                  <View style={styles.dataRow}>
+                    <Text variant="bodyMedium" style={styles.dataLabel}>
+                      SAK
+                    </Text>
+                    <Text variant="bodyLarge" style={styles.dataValue}>
+                      0x{tagData.sak.toString(16).toUpperCase().padStart(2, '0')}
+                    </Text>
+                  </View>
+                )}
+
+                {tagData.atqa && (
+                  <View style={styles.dataRow}>
+                    <Text variant="bodyMedium" style={styles.dataLabel}>
+                      ATQA
+                    </Text>
+                    <Text variant="bodyLarge" style={styles.dataValue}>
+                      {tagData.atqa}
+                    </Text>
+                  </View>
+                )}
+
+                {tagData.historicalBytes && (
+                  <View style={styles.dataRow}>
+                    <Text variant="bodyMedium" style={styles.dataLabel}>
+                      HISTORICAL BYTES
+                    </Text>
+                    <Text variant="bodyLarge" style={styles.dataValue}>
+                      {tagData.historicalBytes}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <Text variant="bodyLarge" style={styles.noData}>
+                No tag data available
+              </Text>
+            )}
+          </DTCard>
         </AnimatedSection>
 
         {/* No Detection Card (fallback) */}
         {!transponder && (
           <AnimatedSection delay={0}>
             <Surface style={styles.noDetectionCard} elevation={1}>
-            <Text variant="labelLarge" style={styles.noDetectionLabel}>
-              CHIP NOT IDENTIFIED
-            </Text>
-            <Divider style={[styles.divider, { backgroundColor: DTColors.modeWarning }]} />
-            <Text variant="bodyMedium" style={styles.noDetectionText}>
-              Unable to identify this chip type. It may be unsupported or require advanced detection.
-            </Text>
-            <Text variant="bodyMedium" style={styles.noDetectionText}>
-              Need help? Ask on our forum for assistance.
-            </Text>
-            <DTButton
-              onPress={() => Linking.openURL(buildTrackedUrl('https://dngr.us/forum', 'unknown_chip'))}
-            >
-              VISIT FORUM
-            </DTButton>
-          </Surface>
+              <Text variant="labelLarge" style={styles.noDetectionLabel}>
+                CHIP NOT IDENTIFIED
+              </Text>
+              <Divider style={[styles.divider, { backgroundColor: DTColors.modeWarning }]} />
+              <Text variant="bodyMedium" style={styles.noDetectionText}>
+                Unable to identify this chip type. It may be unsupported or require advanced detection.
+              </Text>
+              <Text variant="bodyMedium" style={styles.noDetectionText}>
+                Need help? Ask on our forum for assistance.
+              </Text>
+              <DTButton
+                onPress={() => Linking.openURL(buildTrackedUrl('https://dngr.us/forum', 'unknown_chip'))}
+              >
+                VISIT FORUM
+              </DTButton>
+            </Surface>
           </AnimatedSection>
         )}
 
