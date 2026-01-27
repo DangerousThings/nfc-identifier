@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, View, ScrollView, Linking, TouchableOpacity } from 'react-native';
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
-import { DTCard, DTButton, DTColors } from 'react-native-dt-theme';
+import { DTCard, DTButton, DTColors, DTLabel, DTChip } from 'react-native-dt-theme';
 import type { ResultScreenProps } from '../types/navigation';
 import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getMifareClassicCapacityWarning } from '../services/matching';
 import { Product } from '../types/products';
@@ -72,7 +72,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
       <View style={styles.content}>
         {/* Chip Identification Card */}
         {transponder && (
-          <DTCard mode="success" title="CHIP IDENTIFIED" style={{marginBottom: 20}}>
+          <DTCard mode="success" title="CHIP IDENTIFIED" style={{ marginBottom: 20 }}>
 
             <Text variant="headlineMedium" style={styles.chipName}>
               {transponder.chipName}
@@ -249,30 +249,33 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
 
         {/* Product Matches Card - hide for payment devices */}
         {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
-          <Surface style={styles.productsCard} elevation={1}>
-            <Text variant="labelLarge" style={styles.productsLabel}>
+          // <Surface style={styles.productsCard} elevation={1}>
+          <>
+            {/* <Text variant="labelLarge" style={styles.productsLabel}>
               COMPATIBLE IMPLANTS
-            </Text>
-            <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
+            </Text> */}
+            <DTLabel mode='emphasis' primaryText="Compatible Implants" />
+            {/* <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} /> */}
 
-            <Text variant="bodyMedium" style={styles.matchSummary}>
+            {/* <Text variant="bodyMedium" style={styles.matchSummary}>
               {getMatchSummary(matchResult, transponder.chipName)}
-            </Text>
+            </Text> */}
 
             {/* Exact Matches / Clone Targets */}
             {[...matchResult.exactMatches, ...matchResult.cloneTargets.filter(
               p => !matchResult.exactMatches.find(e => e.id === p.id)
             )].map(product => (
-              <Surface key={product.id} style={styles.productItem} elevation={0}>
+              // <Surface key={product.id} style={styles.productItem} elevation={0}>
+              <DTCard mode='emphasis' title={product.name} style={{ paddingBottom: 10 }}>
                 <View style={styles.productHeader}>
-                  <Text variant="titleMedium" style={styles.productName}>
+                  {/* <Text variant="titleMedium" style={styles.productName}>
                     {product.name}
-                  </Text>
-                  <Chip
+                  </Text> */}
+                  <DTChip
                     style={styles.formFactorChip}
                     textStyle={styles.formFactorChipText}>
                     {product.formFactor.replace('_', ' ')}
-                  </Chip>
+                  </DTChip>
                 </View>
 
                 <Text variant="bodySmall" style={styles.productDescription}>
@@ -307,17 +310,20 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                   ))}
                 </View>
 
-                <Button
+                <DTButton
                   mode="outlined"
                   onPress={() => handleProductLink(product)}
                   style={styles.productButton}
                   labelStyle={styles.productButtonLabel}
                   compact>
                   VIEW PRODUCT
-                </Button>
-              </Surface>
+
+                </DTButton>
+              </DTCard>
+
             ))}
-          </Surface>
+            {/* </Surface> */}
+          </>
         )}
 
         {/* No Match Card - show when chip detected but no products match */}
@@ -376,7 +382,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         )}
 
         {/* Raw Tag Data Card */}
-        <DTCard mode="normal" title="RAW TAG DATA" style={{marginBottom: 20}}>
+        <DTCard mode="normal" title="RAW TAG DATA" style={{ marginBottom: 20 }}>
 
           {tagData ? (
             <>
@@ -489,7 +495,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
           <DTButton
             variant="normal"
             onPress={() => navigation.navigate('Scan')}
-            style={{width: '100%'}}>
+            style={{ width: '100%' }}>
             SCAN ANOTHER
           </DTButton>
 
