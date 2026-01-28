@@ -78,13 +78,27 @@ export function detectSpark2FromNdef(
 
 /**
  * Product type values from GET_VERSION byte 1
+ * Per NXP datasheets:
+ * - NTAG 413 DNA (NT4H1321): Type 0x04, Subtype 0x02
+ * - NTAG 424 DNA (NT4H2421): Type 0x04, Subtype 0x05
+ * - NTAG 424 DNA TT: Type 0x04, Subtype 0x04
+ * - DESFire EV1/EV2/EV3: Type 0x01
  */
 const PRODUCT_TYPES = {
   DESFIRE: 0x01, // Standard DESFire
-  NTAG: 0x04, // NTAG family (including NTAG 413 DNA which uses 0x04)
+  NTAG_DNA: 0x04, // NTAG DNA family (413/424) - distinguished by subtype
   NTAG_I2C: 0x05, // NTAG I2C family (can have ISO-DEP on Plus variants)
   DESFIRE_LIGHT: 0x08, // DESFire Light
-  NTAG_424_DNA: 0x21, // NTAG 424 DNA family
+} as const;
+
+/**
+ * NTAG DNA subtype values from GET_VERSION byte 2
+ * Per NXP NT4H1321 and NT4H2421 datasheets
+ */
+const NTAG_DNA_SUBTYPES = {
+  NTAG413_DNA: 0x02, // NTAG 413 DNA
+  NTAG424_DNA_TT: 0x04, // NTAG 424 DNA TagTamper
+  NTAG424_DNA: 0x05, // NTAG 424 DNA
 } as const;
 
 /**
@@ -246,29 +260,31 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
     // Determine chip type based on product type and version
     let chipType: ChipType;
 
-    if (hwProductType === PRODUCT_TYPES.NTAG_424_DNA) {
-      // NTAG 424 DNA family uses product type 0x21
-      // Subtype 0x02 = TagTamper variant (424 DNA TT only)
-      // Storage size helps differentiate:
-      // - NTAG 413 DNA: ~160 bytes user memory (storage code <= 0x0E)
-      // - NTAG 424 DNA: ~416 bytes user memory (storage code >= 0x0F)
-      if (hwSubtype === 0x02) {
-        chipType = ChipType.NTAG424_DNA_TT;
-      } else if (hwStorageSize <= 0x0e) {
-        // Smaller storage indicates NTAG 413 DNA (~160 bytes)
-        chipType = ChipType.NTAG413_DNA;
-      } else {
-        // Larger storage indicates NTAG 424 DNA (~416 bytes)
-        chipType = ChipType.NTAG424_DNA;
+    if (hwProductType === PRODUCT_TYPES.NTAG_DNA) {
+      // NTAG DNA family (413/424) - distinguish by subtype per NXP datasheets
+      // NT4H1321 (NTAG 413 DNA): Subtype 0x02, Major 0x04
+      // NT4H2421 (NTAG 424 DNA): Subtype 0x05, Major 0x04
+      // NT4H2421 TT (NTAG 424 DNA TagTamper): Subtype 0x04, Major 0x04
+      switch (hwSubtype) {
+        case NTAG_DNA_SUBTYPES.NTAG413_DNA:
+          console.log('[DESFire] Detected NTAG 413 DNA (product 0x04, subtype 0x02)');
+          chipType = ChipType.NTAG413_DNA;
+          break;
+        case NTAG_DNA_SUBTYPES.NTAG424_DNA_TT:
+          console.log('[DESFire] Detected NTAG 424 DNA TT (product 0x04, subtype 0x04)');
+          chipType = ChipType.NTAG424_DNA_TT;
+          break;
+        case NTAG_DNA_SUBTYPES.NTAG424_DNA:
+          console.log('[DESFire] Detected NTAG 424 DNA (product 0x04, subtype 0x05)');
+          chipType = ChipType.NTAG424_DNA;
+          break;
+        default:
+          // Unknown NTAG DNA subtype - log and fall back to 424 DNA as most common
+          console.warn(
+            `[DESFire] Unknown NTAG DNA subtype: 0x${hwSubtype.toString(16)}, major: 0x${hwMajor.toString(16)}`,
+          );
+          chipType = ChipType.NTAG424_DNA;
       }
-    } else if (hwProductType === PRODUCT_TYPES.NTAG && hwMajor >= 0x30) {
-      // NTAG 413 DNA returns product type 0x04 (like regular NTAG) but with:
-      // - hwMajor >= 0x30 (typically 0x30)
-      // - hwStorageSize 0x11 (different meaning than regular NTAG)
-      // - Responds to IsoDep (unlike regular NTAG 21x)
-      // Per NXP NT4H1321 datasheet, NTAG 413 DNA uses this response format
-      console.log('[DESFire] Detected NTAG 413 DNA (product type 0x04, hwMajor 0x30+)');
-      chipType = ChipType.NTAG413_DNA;
     } else if (hwProductType === PRODUCT_TYPES.NTAG_I2C) {
       // NTAG I2C family (can have ISO-DEP on Plus variants)
       // Per NXP NT3H2111/NT3H2211 datasheet:
