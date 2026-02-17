@@ -2,6 +2,16 @@
 
 Scan any NFC transponder with your phone and find out which [Dangerous Things](https://dangerousthings.com) implant is compatible with it. If your card or fob can be replaced with an implant, this app will tell you which one.
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/dt_nfc_identifier_main.png" width="200" alt="Home screen">
+  <img src="screenshots/dt_nfc_identifier_scanning.png" width="200" alt="Scanning for NFC tag">
+  <img src="screenshots/dt_nfc_identifier_result_ntag216.png" width="200" alt="NTAG216 result with compatible implants">
+  <img src="screenshots/dt_nfc_identifier_result_mfc.png" width="200" alt="MIFARE Classic 1K result">
+  <img src="screenshots/dt_nfc_result_desfire.png" width="200" alt="DESFire EV3 result">
+</p>
+
 ## What It Does
 
 1. **Scan** - Hold your phone to any NFC card, fob, or tag
