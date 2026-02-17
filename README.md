@@ -1,97 +1,66 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Dangerous Things NFC Identifier
 
-# Getting Started
+Scan any NFC transponder with your phone and find out which [Dangerous Things](https://dangerousthings.com) implant is compatible with it. If your card or fob can be replaced with an implant, this app will tell you which one.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## What It Does
 
-## Step 1: Start Metro
+1. **Scan** - Hold your phone to any NFC card, fob, or tag
+2. **Identify** - The app detects the exact chip type (NTAG, MIFARE Classic, DESFire, etc.)
+3. **Match** - See which Dangerous Things implant products are compatible
+4. **Learn** - Get details about the chip, cloneability, and implant options
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Supported Chip Types
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+| Chip Family | Types Detected |
+|---|---|
+| **NTAG** | NTAG213, NTAG215, NTAG216, NTAG I2C |
+| **NTAG DNA** | NTAG 413 DNA, NTAG 424 DNA, NTAG 424 DNA TT |
+| **MIFARE Classic** | Classic 1K, Classic 4K, Classic Mini |
+| **MIFARE DESFire** | EV1, EV2, EV3, DESFire Light |
+| **MIFARE Ultralight** | Ultralight, Ultralight C, EV1, Nano, AES |
+| **MIFARE Plus** | Plus S, Plus X, Plus SE, Plus EV1 |
+| **ISO 15693** | ICODE SLIX, SLIX2, SLIX-S, SLIX-L, NTAG 5 |
+| **JavaCard** | JCOP4 / J3R180 (Apex, flexSecure) |
 
-```sh
-# Using npm
-npm start
+## Implant Products
 
-# OR using Yarn
-yarn start
+The app matches scanned chips to current Dangerous Things products including:
+
+- **xNT** / **flexNT** - NTAG216 NFC implants
+- **xSIID** / **NExT v2** - NTAG I2C with LED
+- **NExT** / **dNExT** - Dual-frequency (NFC + 125kHz)
+- **xMagic** / **xM1** / **flexM1 v2** - Magic MIFARE Classic (cloneable UID)
+- **flexUG4** / **dUG4T** - Ultimate Gen4 magic MIFARE
+- **xDF3** / **flexDF2** - DESFire secure NFC
+- **Apex Flex** / **flexSecure** - JavaCard secure element
+- **VivoKey Spark 2** - Cryptobionic identity
+- **xSLX** - ICODE SLIX NFC Type 5
+
+If no matching implant is found, the app directs you to the [Dangerous Things conversion service](https://dngr.us/conversion).
+
+## Platform Notes
+
+- **Android** - Full chip detection support including MIFARE Classic sector operations
+- **iOS** - Full detection for most chip types. MIFARE Classic is detected but sector-level cloning operations require Android
+
+## Building From Source
+
+Requires Node.js 20+ and the React Native development environment.
+
+```bash
+npm install
+npx expo prebuild
+
+# Android
+npx expo run:android
+
+# iOS
+cd ios && pod install && cd ..
+npx expo run:ios
 ```
 
-## Step 2: Build and run your app
+NFC cannot be tested in simulators. A physical device is required.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## License
 
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
-```
-
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Copyright Dangerous Things LLC. All rights reserved.
