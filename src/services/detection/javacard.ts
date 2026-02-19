@@ -11,6 +11,7 @@ import {
   KNOWN_AIDS,
   sendIsoDepCommand,
   parseApduResponse,
+  bytesToHex,
 } from '../nfc/commands';
 
 /**
@@ -51,6 +52,12 @@ const JCOP_OS_PATTERNS: Array<{pattern: number; mask: number; name: string}> = [
 ];
 
 /**
+ * Fidesmo persistent memory fingerprint (from GP Qt project)
+ * Apex/VivoKey devices report exactly this value for persistent_total
+ */
+const FIDESMO_PERSISTENT_TOTAL = 84336;
+
+/**
  * Result of JavaCard detection
  */
 export interface JavaCardDetectionResult {
@@ -60,6 +67,7 @@ export interface JavaCardDetectionResult {
   fabricatorName?: string;
   osName?: string;
   installedApplets?: string[];
+  isFidesmo?: boolean;
   error?: string;
 }
 
@@ -109,13 +117,16 @@ function identifyJcopVersion(osId: number): string | null {
 }
 
 /**
- * Detect JavaCard/JCOP chip using CPLC
+ * Detect JavaCard/JCOP chip using CPLC, Fidesmo fingerprinting, and AID probing
+ * Detection strategy derived from GP Qt project:
+ *   1. Try Card Manager selection + CPLC
+ *   2. Read JavaCard Memory applet (persistent_total == 84336 = Fidesmo)
+ *   3. Probe Fidesmo-specific AIDs (App, Batch, Platform)
+ *   4. Probe common applets for identification
  */
 export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
   try {
     // First, try to select the Card Manager (ISD)
-    // Card Manager selection might fail, but we can still try CPLC
-    // Some cards allow CPLC without selecting an applet
     let cardManagerSelected = false;
     try {
       const cmResponse = await sendIsoDepCommand(
@@ -147,12 +158,35 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
           }
         }
       } catch {
-        // CPLC failed - will try AID probing
+        // CPLC failed - will try other methods
       }
     }
 
-    // Probe for installed applets (this also helps identify DT implants)
+    // Check JavaCard Memory for Fidesmo fingerprint (from GP Qt project)
+    // The memory applet reports persistent_total; Fidesmo devices report 84336
+    const memoryResult = await readJavacardMemory();
+    const isFidesmoByMemory =
+      memoryResult !== null &&
+      memoryResult.persistentTotal === FIDESMO_PERSISTENT_TOTAL;
+
+    if (isFidesmoByMemory) {
+      console.log(
+        '[javacard] Fidesmo fingerprint detected via JavaCard Memory:',
+        `persistent_total=${memoryResult!.persistentTotal}`,
+      );
+    }
+
+    // Probe Fidesmo-specific AIDs (from GP Qt project)
+    const fidesmoDetected = await probeFidesmo();
+
+    // Probe for installed applets (also helps identify DT implants)
     const installedApplets = await probeApplets();
+
+    // Add Fidesmo to applet list if detected by any method
+    const isFidesmo = isFidesmoByMemory || fidesmoDetected;
+    if (isFidesmo && !installedApplets.includes('Fidesmo')) {
+      installedApplets.push('Fidesmo');
+    }
 
     // Determine chip type
     let chipType: ChipType = ChipType.JAVACARD_UNKNOWN;
@@ -161,7 +195,17 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
     if (cplc && cplc.icFabricator === 0x4790 && osName?.includes('JCOP4')) {
       chipType = ChipType.JCOP4;
     }
-    // If we found JavaCard Memory, it's definitely a JCOP4 (Apex/flexSecure)
+    // Fidesmo fingerprint (memory or AID) — definitely JCOP4 Apex
+    else if (isFidesmo) {
+      chipType = ChipType.JCOP4;
+      if (!osName) {
+        osName = 'JCOP4 (Fidesmo)';
+      }
+      if (!fabricatorName) {
+        fabricatorName = 'NXP Semiconductors';
+      }
+    }
+    // If we found JavaCard Memory, it's a JCOP4 (Apex/flexSecure)
     else if (installedApplets.includes('JavaCard Memory')) {
       chipType = ChipType.JCOP4;
       if (!osName) {
@@ -169,13 +213,6 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
       }
       if (!fabricatorName) {
         fabricatorName = 'NXP Semiconductors';
-      }
-    }
-    // If Fidesmo is present, likely JCOP4
-    else if (installedApplets.includes('Fidesmo') && !cplc) {
-      chipType = ChipType.JCOP4;
-      if (!osName) {
-        osName = 'JCOP4 (Fidesmo)';
       }
     }
 
@@ -198,6 +235,7 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
       fabricatorName,
       osName: osName || (cplc ? `Unknown OS (0x${cplc.osId.toString(16)})` : 'Unknown'),
       installedApplets,
+      isFidesmo,
     };
   } catch (error) {
     const errorMessage =
@@ -208,6 +246,85 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
       error: `JavaCard detection failed: ${errorMessage}`,
     };
   }
+}
+
+/**
+ * JavaCard Memory applet response data
+ */
+export interface JavaCardMemoryInfo {
+  persistentFree: number;
+  persistentTotal: number;
+  transientResetFree: number;
+  transientDeselectFree: number;
+}
+
+/**
+ * Read JavaCard Memory applet to get storage information
+ * The response contains: [persistent_free:4][persistent_total:4][transient_reset:2][transient_deselect:2]
+ * From GP Qt project: measure.py
+ */
+async function readJavacardMemory(): Promise<JavaCardMemoryInfo | null> {
+  try {
+    const response = await sendIsoDepCommand(
+      selectAid(KNOWN_AIDS.javacardMemory),
+    );
+    const parsed = parseApduResponse(response);
+
+    if (!parsed.isSuccess || parsed.data.length < 12) {
+      return null;
+    }
+
+    const d = parsed.data;
+    const persistentFree =
+      ((d[0] << 24) | (d[1] << 16) | (d[2] << 8) | d[3]) >>> 0;
+    const persistentTotal =
+      ((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]) >>> 0;
+    const transientResetFree = (d[8] << 8) | d[9];
+    const transientDeselectFree = (d[10] << 8) | d[11];
+
+    console.log('[javacard] Memory info:', {
+      persistentFree,
+      persistentTotal,
+      transientResetFree,
+      transientDeselectFree,
+    });
+
+    return {
+      persistentFree,
+      persistentTotal,
+      transientResetFree,
+      transientDeselectFree,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Probe Fidesmo-specific AIDs (from GP Qt project)
+ * Returns true if any Fidesmo AID is found
+ */
+async function probeFidesmo(): Promise<boolean> {
+  const fidesmoAids = [
+    {aid: KNOWN_AIDS.fidesmoApp, name: 'Fidesmo App'},
+    {aid: KNOWN_AIDS.fidesmoBatch, name: 'Fidesmo Batch'},
+    {aid: KNOWN_AIDS.fidesmoPlatform, name: 'Fidesmo Platform'},
+  ];
+
+  for (const {aid, name} of fidesmoAids) {
+    try {
+      const response = await sendIsoDepCommand(selectAid(aid));
+      const parsed = parseApduResponse(response);
+      if (parsed.isSuccess) {
+        console.log(`[javacard] ${name} AID found: ${bytesToHex(aid)}`);
+        return true;
+      }
+    } catch {
+      // Not present, try next
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -240,23 +357,115 @@ async function probeApplets(): Promise<string[]> {
     // Applet not present
   }
 
-  // Try FIDO/U2F applet
+  // Try FIDO U2F applet
   try {
     const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.fido));
     const parsed = parseApduResponse(response);
     if (parsed.isSuccess) {
-      found.push('FIDO/U2F');
+      found.push('FIDO U2F');
     }
   } catch {
     // Applet not present
   }
 
-  // Try Fidesmo service discovery
+  // Try FIDO2 applet
   try {
-    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.fidesmo));
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.fido2));
     const parsed = parseApduResponse(response);
     if (parsed.isSuccess) {
-      found.push('Fidesmo');
+      found.push('FIDO2');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try VivoKey OTP applet
+  try {
+    const response = await sendIsoDepCommand(
+      selectAid(KNOWN_AIDS.vivokeyOtp),
+    );
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('VivoKey OTP');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try NDEF applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.ndefTag));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('NDEF');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try OATH applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.oath));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('OATH');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try PIV applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.piv));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('PIV');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try SatoChip applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.satoChip));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('SatoChip');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try SeedKeeper applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.seedKeeper));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('SeedKeeper');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try Keycard applet
+  try {
+    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.keycard));
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('Keycard');
+    }
+  } catch {
+    // Applet not present
+  }
+
+  // Try YubiKey HMAC applet
+  try {
+    const response = await sendIsoDepCommand(
+      selectAid(KNOWN_AIDS.yubikeyHmac),
+    );
+    const parsed = parseApduResponse(response);
+    if (parsed.isSuccess) {
+      found.push('YubiKey HMAC');
     }
   } catch {
     // Applet not present
@@ -358,6 +567,14 @@ export async function hasJavacardMemory(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Get JavaCard storage info (public wrapper)
+ * Returns memory stats or null if not available
+ */
+export async function getJavacardStorageInfo(): Promise<JavaCardMemoryInfo | null> {
+  return readJavacardMemory();
 }
 
 /**

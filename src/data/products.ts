@@ -465,6 +465,50 @@ export const PRODUCTS: Product[] = [
     exactMatch: false,
     notes: 'Supports 1K and 4K cloning.',
   },
+
+  // ==========================================================================
+  // Sensor Implants — Temperature monitoring via NTAG5 + I2C sensors
+  // ==========================================================================
+  {
+    id: 'temptress',
+    name: 'Temptress',
+    description:
+      'Dual-sensor temperature monitoring implant with two TMP117 sensors for differential temperature measurement.',
+    formFactor: FormFactor.FLEX,
+    categories: [ProductCategory.NFC, ProductCategory.SENSOR],
+    compatibleChips: [ChipType.NTAG5_BOOST, ChipType.NTAG5_LINK],
+    features: [
+      'Dual TMP117 sensors',
+      'Temperature monitoring',
+      'Energy harvesting powered',
+      'NTAG5 NFC interface',
+    ],
+    url: 'https://dangerousthings.com/product/temptress/',
+    canReceiveClone: false,
+    exactMatch: true,
+    notes: 'Identified by dual TMP117 sensors at I2C addresses 0x49/0x4A. Not a VivoKey product.',
+  },
+  {
+    id: 'vk-thermo-112',
+    name: 'VivoKey Thermo 112',
+    description:
+      'Temperature monitoring implant using TMP112 sensor with VivoKey Verify authentication.',
+    formFactor: FormFactor.X_SERIES,
+    categories: [ProductCategory.NFC, ProductCategory.SENSOR, ProductCategory.SECURE],
+    compatibleChips: [ChipType.NTAG5_BOOST, ChipType.NTAG5_LINK],
+    features: [
+      'TMP112 temperature sensor',
+      'Temperature monitoring',
+      'VivoKey Verify authentication',
+      'Energy harvesting powered',
+    ],
+    url: 'https://vivokey.com/thermo',
+    canReceiveClone: false,
+    exactMatch: true,
+    notes: 'Identified by AFI=0x54, DSFID=0x09. Signature: "VK Thermo 112 vivokey.com/thermo"',
+  },
+  // VK Thermo 117 (TMP117) — end of life, detection still works but not listed as product
+  // VK Thermo 119 (TMP119) — not yet released, detection still works but not listed as product
 ];
 
 /**

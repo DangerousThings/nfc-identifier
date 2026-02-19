@@ -9,11 +9,14 @@ import type {NdefRecord} from '../../types/nfc';
 import {
   DESFIRE_GET_VERSION,
   DESFIRE_GET_VERSION_CONTINUE,
+  DESFIRE_GET_APPLICATION_IDS,
   sendIsoDepCommand,
   parseApduResponse,
   selectAid,
   KNOWN_AIDS,
 } from '../nfc/commands';
+import {lookupDesfireAid, formatDesfireAidLabel, isHiddenAid} from '../../data/desfireAids';
+import type {DesfireAidInfo} from '../../data/desfireAids';
 
 /**
  * URI record type name format prefixes
@@ -493,6 +496,116 @@ export function formatDesfireVersionInfo(info: DesfireVersionInfo): string {
       ? `, SW: ${info.softwareMajor}.${info.softwareMinor}`
       : '';
   return version + software;
+}
+
+// ============================================================================
+// DESFire Application Enumeration
+// ============================================================================
+
+/**
+ * Enumerated DESFire application
+ */
+export interface DesfireApp {
+  /** 6-char uppercase hex AID (MSB-first), e.g. "F48120" */
+  aid: string;
+  /** Looked-up info from database, if known */
+  info?: DesfireAidInfo;
+}
+
+/**
+ * Enumerate all DESFire applications on the card using GET_APPLICATION_IDS.
+ *
+ * This must be called while the card is still in native DESFire mode
+ * (i.e., after GET_VERSION, before any ISO 7816 SELECT).
+ *
+ * Returns an array of apps with their AIDs and optional database info.
+ * The response AIDs are in LSB-first order and are converted to MSB-first hex.
+ */
+export async function enumerateDesfireApps(): Promise<DesfireApp[]> {
+  try {
+    console.log('[DESFire] Sending GET_APPLICATION_IDS...');
+
+    const response = await sendIsoDepCommand(DESFIRE_GET_APPLICATION_IDS);
+    const parsed = parseApduResponse(response);
+
+    console.log('[DESFire] GET_APPLICATION_IDS response:', {
+      dataLen: parsed.data.length,
+      sw: `${parsed.sw1.toString(16)}${parsed.sw2.toString(16)}`,
+    });
+
+    // Collect all AID data bytes (may span continuation frames)
+    let allData = [...parsed.data];
+
+    // Check for continuation (SW1=91, SW2=AF means more data)
+    if (parsed.sw1 === 0x91 && parsed.sw2 === 0xaf) {
+      try {
+        const contResponse = await sendIsoDepCommand(DESFIRE_GET_VERSION_CONTINUE);
+        const contParsed = parseApduResponse(contResponse);
+        allData.push(...contParsed.data);
+
+        // Handle rare case of multiple continuation frames
+        if (contParsed.sw1 === 0x91 && contParsed.sw2 === 0xaf) {
+          const cont2Response = await sendIsoDepCommand(DESFIRE_GET_VERSION_CONTINUE);
+          const cont2Parsed = parseApduResponse(cont2Response);
+          allData.push(...cont2Parsed.data);
+        }
+      } catch {
+        // Continue with what we have
+      }
+    } else if (!parsed.isSuccess && parsed.sw1 !== 0x91) {
+      console.log('[DESFire] GET_APPLICATION_IDS failed:', `SW=${parsed.sw1.toString(16)}${parsed.sw2.toString(16)}`);
+      return [];
+    }
+
+    // Parse AIDs: each is 3 bytes in LSB-first order
+    const apps: DesfireApp[] = [];
+    for (let i = 0; i + 2 < allData.length; i += 3) {
+      // Reverse from LSB-first to MSB-first
+      const aidHex = [allData[i + 2], allData[i + 1], allData[i]]
+        .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+        .join('');
+
+      const info = lookupDesfireAid(aidHex);
+      apps.push({aid: aidHex, info});
+
+      console.log(
+        `[DESFire] App AID: 0x${aidHex}`,
+        info ? `→ ${info.name} (${info.type})` : '(unknown)',
+      );
+    }
+
+    console.log(`[DESFire] Found ${apps.length} application(s)`);
+    return apps;
+  } catch (error) {
+    console.warn('[DESFire] App enumeration failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Convert enumerated DESFire apps into display strings for the
+ * Transponder.installedApplets field.
+ *
+ * - Known apps get their database name (e.g., "ORCA", "HID SEOS")
+ * - Unknown apps show as "App 0xABCDEF"
+ * - Hidden AIDs (PICC master 000000, FFFFFF) are filtered out
+ * - Duplicates (same display name) are deduplicated
+ */
+export function formatDesfireApps(apps: DesfireApp[]): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+
+  for (const app of apps) {
+    if (isHiddenAid(app.aid)) continue;
+
+    const label = formatDesfireAidLabel(app.aid);
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+
+  return labels;
 }
 
 /**

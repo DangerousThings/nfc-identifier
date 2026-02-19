@@ -65,15 +65,32 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     return getChipFamilyInfo(getChipFamily(transponder.type));
   }, [transponder]);
 
+  // Check if a product is the one that was just scanned (to exclude it)
+  const isScannedImplant = (product: Product): boolean => {
+    if (!transponder?.implantName) return false;
+    const pName = product.name.toLowerCase();
+    const iName = transponder.implantName.toLowerCase();
+    if (pName.includes(iName) || iName.includes(pName)) return true;
+    // Normalize "VivoKey" / "VK" prefixes
+    const pNorm = pName.replace('vivokey ', '').replace('vk ', '');
+    const iNorm = iName.replace('vivokey ', '').replace('vk ', '');
+    return pNorm.includes(iNorm) || iNorm.includes(pNorm);
+  };
+
+  // Build filtered product list (excluding the detected implant)
+  const displayProducts = useMemo(() => {
+    if (!matchResult) return [];
+    const all = [
+      ...matchResult.exactMatches,
+      ...matchResult.cloneTargets.filter(
+        p => !matchResult.exactMatches.find(e => e.id === p.id)
+      ),
+    ];
+    return all.filter(p => !isScannedImplant(p));
+  }, [matchResult, transponder]);
+
   // Calculate product count for animation timing
-  const productCount = useMemo(() => {
-    if (!matchResult) return 0;
-    const exactCount = matchResult.exactMatches.length;
-    const cloneCount = matchResult.cloneTargets.filter(
-      p => !matchResult.exactMatches.find(e => e.id === p.id)
-    ).length;
-    return exactCount + cloneCount;
-  }, [matchResult]);
+  const productCount = displayProducts.length;
 
   // Animation delays - sequential flow
   const delays = useMemo(() => {
@@ -168,6 +185,37 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 )
               )}
 
+              {/* Temperature readings for Thermo / Temptress */}
+              {transponder.temperature && (
+                <View style={styles.temperatureContainer}>
+                  {transponder.temperature2 ? (
+                    <>
+                      <Text variant="labelMedium" style={styles.temperatureLabel}>
+                        SENSOR 1
+                      </Text>
+                      <Text variant="headlineSmall" style={styles.temperatureValue}>
+                        {transponder.temperature.celsius.toFixed(2)}°C  /  {transponder.temperature.fahrenheit.toFixed(2)}°F
+                      </Text>
+                      <Text variant="labelMedium" style={[styles.temperatureLabel, { marginTop: 12 }]}>
+                        SENSOR 2
+                      </Text>
+                      <Text variant="headlineSmall" style={styles.temperatureValue}>
+                        {transponder.temperature2.celsius.toFixed(2)}°C  /  {transponder.temperature2.fahrenheit.toFixed(2)}°F
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text variant="labelMedium" style={styles.temperatureLabel}>
+                        TEMPERATURE
+                      </Text>
+                      <Text variant="headlineSmall" style={styles.temperatureValue}>
+                        {transponder.temperature.celsius.toFixed(2)}°C  /  {transponder.temperature.fahrenheit.toFixed(2)}°F
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
+
               <View style={styles.chipMeta}>
                 <DTChip
                   variant="normal">
@@ -210,6 +258,58 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 <Text variant="bodySmall" style={styles.cloneabilityNote}>
                   {transponder.cloneabilityNote}
                 </Text>
+              )}
+
+              {/* Installed Applets (JavaCard/JCOP) */}
+              {transponder.installedApplets && transponder.installedApplets.length > 0 && (
+                <View style={styles.appletsContainer}>
+                  <Text variant="labelMedium" style={styles.appletsLabel}>
+                    INSTALLED APPLETS
+                  </Text>
+                  <View style={styles.appletsList}>
+                    {transponder.installedApplets
+                      .filter(a => a !== 'JavaCard Memory' && a !== 'Payment (PPSE)')
+                      .map((applet, idx) => (
+                        <DTChip key={idx} variant="normal" style={styles.appletChip}>
+                          {applet}
+                        </DTChip>
+                      ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Storage Info (JavaCard Memory) */}
+              {transponder.storageInfo && (
+                <View style={styles.storageContainer}>
+                  <Text variant="labelMedium" style={styles.storageLabel}>
+                    STORAGE
+                  </Text>
+                  <View style={styles.storageBarBackground}>
+                    <View
+                      style={[
+                        styles.storageBarFill,
+                        {
+                          width: `${Math.min(
+                            100,
+                            ((transponder.storageInfo.persistentTotal - transponder.storageInfo.persistentFree) /
+                              transponder.storageInfo.persistentTotal) * 100
+                          )}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.storageDetails}>
+                    <Text variant="bodySmall" style={styles.storageText}>
+                      {((transponder.storageInfo.persistentTotal - transponder.storageInfo.persistentFree) / 1024).toFixed(1)} KB used
+                    </Text>
+                    <Text variant="bodySmall" style={styles.storageText}>
+                      {(transponder.storageInfo.persistentFree / 1024).toFixed(1)} KB free
+                    </Text>
+                    <Text variant="bodySmall" style={styles.storageText}>
+                      {(transponder.storageInfo.persistentTotal / 1024).toFixed(1)} KB total
+                    </Text>
+                  </View>
+                </View>
               )}
             </DTCard>
           </AnimatedSection>
@@ -319,17 +419,15 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         )}
 
         {/* Product Matches Card - hide for payment devices */}
-        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
+        {transponder && displayProducts.length > 0 && !transponder.implantName?.includes('Payment Card') && (
           <AnimatedSection delay={delays.compatibleLabel}>
-            <DTLabel mode='emphasis' primaryText="Compatible Implants" style={{ marginBottom: 25, }} size="large" animated={false} />
+            <DTLabel mode='emphasis' primaryText={transponder.implantName ? "Similar Implants" : "Compatible Implants"} style={{ marginBottom: 25, }} size="large" animated={false} />
           </AnimatedSection>
         )}
 
         {/* Individual Product Cards - staggered */}
-        {transponder && matchResult && (matchResult.exactMatches.length > 0 || matchResult.cloneTargets.length > 0) && !transponder.implantName?.includes('Payment Card') && (
-          [...matchResult.exactMatches, ...matchResult.cloneTargets.filter(
-            p => !matchResult.exactMatches.find(e => e.id === p.id)
-          )].map((product, index) => (
+        {transponder && displayProducts.length > 0 && !transponder.implantName?.includes('Payment Card') && (
+          displayProducts.map((product, index) => (
             <AnimatedSection key={product.id} delay={delays.productBase + (index * delays.productIncrement)}>
               <DTCard mode='emphasis' title={product.name} style={{ marginBottom: 25 }}>
                 <View style={styles.productHeader}>
@@ -983,6 +1081,80 @@ const styles = StyleSheet.create({
     color: DTColors.modeSuccess,
     fontWeight: 'bold',
     letterSpacing: 1,
+  },
+  // Temperature styles
+  temperatureContainer: {
+    backgroundColor: 'rgba(0, 255, 255, 0.08)',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: DTColors.modeNormal,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  temperatureLabel: {
+    color: DTColors.modeNormal,
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  temperatureValue: {
+    color: DTColors.light,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+  },
+  // Installed applets styles
+  appletsContainer: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 12,
+  },
+  appletsLabel: {
+    color: DTColors.modeNormal,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  appletsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  appletChip: {
+    marginBottom: 2,
+  },
+  // Storage info styles
+  storageContainer: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 12,
+  },
+  storageLabel: {
+    color: DTColors.modeNormal,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  storageBarBackground: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  storageBarFill: {
+    height: '100%',
+    backgroundColor: DTColors.modeNormal,
+    borderRadius: 4,
+  },
+  storageDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  storageText: {
+    color: DTColors.light,
+    opacity: 0.6,
+    fontSize: 11,
   },
   // Payment device styles
   paymentDeviceRow: {

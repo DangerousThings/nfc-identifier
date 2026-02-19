@@ -23,6 +23,7 @@ export enum ProductCategory {
   SECURE = 'SECURE', // Cryptographic/secure elements
   LED = 'LED', // Implants with LED indicators
   ACCESS = 'ACCESS', // Access control focused
+  SENSOR = 'SENSOR', // Temperature/biometric sensor implants
 }
 
 /**

@@ -89,6 +89,13 @@ export const DESFIRE_GET_VERSION = [0x90, 0x60, 0x00, 0x00, 0x00];
 export const DESFIRE_GET_VERSION_CONTINUE = [0x90, 0xaf, 0x00, 0x00, 0x00];
 
 /**
+ * DESFire GET_APPLICATION_IDS (ISO-wrapped)
+ * Returns list of 3-byte AIDs (LSB-first) for all applications on the card.
+ * Response may use continuation (SW 91 AF) if there are many apps.
+ */
+export const DESFIRE_GET_APPLICATION_IDS = [0x90, 0x6a, 0x00, 0x00, 0x00];
+
+/**
  * SELECT command for AID
  */
 export function selectAid(aid: number[]): number[] {
@@ -147,6 +154,121 @@ export function iso15693ReadMultipleBlocks(
 }
 
 // ============================================================================
+// NXP Custom ISO 15693 Commands (for NTAG5 Link/Boost I2C passthrough)
+// Reference: NXP NTAG 5 link datasheet, flipper-thermo/helpers/vk_thermo_nfc.c
+// ============================================================================
+
+/** NXP manufacturer code for custom commands */
+export const NXP_MANUF_CODE = 0x04;
+
+/** NXP custom command codes */
+export const NXP_CMD = {
+  READ_CONFIG: 0xc0,
+  WRITE_CONFIG: 0xc1,
+  READ_SRAM: 0xd2,
+  WRITE_I2C: 0xd4,
+  READ_I2C: 0xd5,
+} as const;
+
+/** ISO 15693 flags */
+const ISO15693_FLAG_HIGH_DATA_RATE = 0x02;
+const ISO15693_FLAG_ADDRESSED = 0x20;
+
+/**
+ * Parse UID hex string to byte array
+ * Handles formats: "AA:BB:CC", "AABBCC", "AA BB CC"
+ */
+export function parseUidToBytes(uidString: string): number[] {
+  const clean = uidString.replace(/[:\s-]/g, '');
+  const bytes: number[] = [];
+  for (let i = 0; i < clean.length; i += 2) {
+    bytes.push(parseInt(clean.substring(i, i + 2), 16));
+  }
+  return bytes;
+}
+
+/**
+ * Reverse byte array for LSB-first UID encoding in ISO 15693 addressed commands
+ */
+export function uidBytesLsbFirst(uidBytes: number[]): number[] {
+  return [...uidBytes].reverse();
+}
+
+/**
+ * Build an NXP custom command in addressed mode
+ * Format: [0x22][CMD][0x04][UID LSB-first 8 bytes][params...]
+ *
+ * Note: On Android, NfcV.transceive() sends raw bytes including flags.
+ * On iOS, we use customCommand() which handles flags/UID differently.
+ */
+export function buildNxpCustomCommand(
+  cmd: number,
+  uidBytes: number[],
+  params: number[],
+): number[] {
+  return [
+    ISO15693_FLAG_HIGH_DATA_RATE | ISO15693_FLAG_ADDRESSED, // 0x22
+    cmd,
+    NXP_MANUF_CODE, // 0x04
+    ...uidBytesLsbFirst(uidBytes),
+    ...params,
+  ];
+}
+
+/**
+ * Send NXP custom command via ISO 15693
+ * Platform-aware: uses raw transceive on Android, customCommand on iOS
+ *
+ * Returns response data (without flags byte) or throws on failure
+ */
+export async function sendNxpCustomCommand(
+  cmd: number,
+  uidBytes: number[],
+  params: number[],
+): Promise<number[]> {
+  if (Platform.OS === 'ios') {
+    // iOS: try customCommand API from iso15693HandlerIOS
+    try {
+      const customRequestParameters = [
+        ...uidBytesLsbFirst(uidBytes),
+        ...params,
+      ];
+      const response =
+        await NfcManager.iso15693HandlerIOS.customCommand({
+          flags: ISO15693_FLAG_HIGH_DATA_RATE | ISO15693_FLAG_ADDRESSED,
+          customCommandCode: cmd,
+          customRequestParameters,
+        });
+      return Array.from(response);
+    } catch (error) {
+      console.debug('[commands] iOS customCommand failed:', error);
+      throw error;
+    }
+  }
+
+  // Android: raw transceive with full command bytes
+  const fullCommand = buildNxpCustomCommand(cmd, uidBytes, params);
+  const response = await transceiveNfcV(fullCommand);
+
+  // Parse response: first byte is flags, rest is data
+  if (response.length === 0) {
+    throw new Error('Empty response from NXP command');
+  }
+
+  const flagByte = response[0];
+  if (flagByte & 0x01) {
+    // Error flag set
+    const errorCode = response.length > 1 ? response[1] : 0;
+    throw new Error(
+      `NXP command 0x${cmd.toString(16)} error: flag=0x${flagByte.toString(16)}, code=0x${errorCode.toString(16)}`,
+    );
+  }
+
+  // Success - return data after flags byte
+  return response.slice(1);
+}
+
+// ============================================================================
 // Known AIDs
 // ============================================================================
 
@@ -155,16 +277,17 @@ export const KNOWN_AIDS = {
   cardManager: [0xa0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00],
   /** OpenPGP applet */
   openPgp: [0xd2, 0x76, 0x00, 0x01, 0x24, 0x01],
-  /** FIDO/U2F applet */
-  fido: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01],
+  /** FIDO U2F applet (CTAP1) */
+  fido: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x02],
   /** FIDO2/WebAuthn applet (CTAP2) */
-  fido2: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01],
-  /** Fidesmo service discovery applet */
-  fidesmo: [0xa0, 0x00, 0x00, 0x06, 0x17, 0x00],
+  fido2: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01, 0x01],
   /** NFC Forum Type 4 Tag NDEF applet */
   ndefTag: [0xd2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01],
-  /** VivoKey OTP applet */
-  vivokeyOtp: [0xa0, 0x00, 0x00, 0x05, 0x27, 0x21, 0x01],
+  /** VivoKey OTP applet (full AID from GP Qt project) */
+  vivokeyOtp: [
+    0xa0, 0x00, 0x00, 0x05, 0x27, 0x21, 0x01, 0x01,
+    0x41, 0x50, 0x45, 0x58, 0x01,
+  ],
   /** PIV (Personal Identity Verification) */
   piv: [0xa0, 0x00, 0x00, 0x03, 0x08],
   /** OATH (OTP) applet */
@@ -173,6 +296,30 @@ export const KNOWN_AIDS = {
   javacardMemory: [
     0xa0, 0x00, 0x00, 0x08, 0x46, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x01,
   ],
+
+  // Fidesmo AIDs (from GP Qt project - used for Apex detection)
+  /** Fidesmo App AID */
+  fidesmoApp: [
+    0xa0, 0x00, 0x00, 0x06, 0x17, 0x02, 0x00, 0x02, 0x00, 0x00, 0x01,
+  ],
+  /** Fidesmo Batch AID */
+  fidesmoBatch: [
+    0xa0, 0x00, 0x00, 0x06, 0x17, 0x02, 0x00, 0x02, 0x00, 0x00, 0x02,
+  ],
+  /** Fidesmo Platform AID */
+  fidesmoPlatform: [
+    0xa0, 0x00, 0x00, 0x06, 0x17, 0x02, 0x00, 0x09, 0x00, 0x01, 0x01, 0x01,
+  ],
+
+  // Additional applet AIDs (from GP Qt project)
+  /** SatoChip applet */
+  satoChip: [0x53, 0x61, 0x74, 0x6f, 0x43, 0x68, 0x69, 0x70, 0x00],
+  /** SeedKeeper applet */
+  seedKeeper: [0x53, 0x65, 0x65, 0x64, 0x4b, 0x65, 0x65, 0x70, 0x65, 0x72, 0x00],
+  /** Keycard applet */
+  keycard: [0xa0, 0x00, 0x00, 0x08, 0x04, 0x00, 0x01],
+  /** YubiKey HMAC applet */
+  yubikeyHmac: [0xa0, 0x00, 0x00, 0x05, 0x27, 0x20, 0x01, 0x01],
 
   // Payment network AIDs (EMV)
   /** Visa Credit/Debit */

@@ -216,6 +216,10 @@ export interface Iso15693DetectionResult {
   icReference?: number;
   blockSize?: number;
   blockCount?: number;
+  /** Data Storage Format Identifier — used for VK Thermo product identification */
+  dsfid?: number;
+  /** Application Family Identifier — AFI 0x54 indicates VK Thermo product */
+  afi?: number;
   error?: string;
 }
 
@@ -395,6 +399,8 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
             icReference,
             blockSize: sysInfo.blockSize,
             blockCount: sysInfo.blockCount,
+            dsfid: sysInfo.dsfid,
+            afi: sysInfo.afi,
           };
         }
 
@@ -406,6 +412,8 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
           icReference,
           blockSize: sysInfo.blockSize,
           blockCount: sysInfo.blockCount,
+          dsfid: sysInfo.dsfid,
+          afi: sysInfo.afi,
         };
       }
 
@@ -427,6 +435,8 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
             icReference: uidIcReference,
             blockSize: sysInfo.blockSize,
             blockCount: sysInfo.blockCount,
+            dsfid: sysInfo.dsfid,
+            afi: sysInfo.afi,
           };
         }
 
@@ -439,6 +449,8 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
           icManufacturer: icManufacturer ?? NXP_IC_MFG_CODE,
           blockSize: sysInfo.blockSize,
           blockCount: sysInfo.blockCount,
+          dsfid: sysInfo.dsfid,
+          afi: sysInfo.afi,
         };
       }
 
@@ -450,6 +462,8 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
         icManufacturer,
         blockSize: sysInfo.blockSize,
         blockCount: sysInfo.blockCount,
+        dsfid: sysInfo.dsfid,
+        afi: sysInfo.afi,
       };
     } catch (sysInfoError) {
       // GET_SYSTEM_INFO failed
@@ -511,7 +525,7 @@ export async function detectIso15693(): Promise<Iso15693DetectionResult> {
  * MSB first (standard): E0:MFG:ICRef:Serial[5]
  * LSB first (common in NFC reads): Serial[5]:ICRef:MFG:E0
  */
-function parseIso15693Uid(uidBytes: number[]): {
+export function parseIso15693Uid(uidBytes: number[]): {
   icManufacturer?: number;
   icReference?: number;
 } {

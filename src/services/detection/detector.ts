@@ -21,9 +21,10 @@ import {
   hasIsoDepCapability,
   detectSakSwap,
 } from './mifare';
-import {detectDesfire, detectDesfireFromAts, detectSpark2Implant, detectSpark2FromNdef} from './desfire';
+import {detectDesfire, detectDesfireFromAts, detectSpark2Implant, detectSpark2FromNdef, enumerateDesfireApps, formatDesfireApps} from './desfire';
 import {detectIso15693, isIso15693, detectSparkImplant} from './iso15693';
-import {detectJavaCard, mightBeJavaCard, detectJavaCardFromAts} from './javacard';
+import {detectNtag5SensorImplant} from './ntag5sensor';
+import {detectJavaCard, mightBeJavaCard, detectJavaCardFromAts, getJavacardStorageInfo} from './javacard';
 
 /**
  * Create a Transponder object from detection results
@@ -37,6 +38,10 @@ function createTransponder(
     confidence?: Transponder['confidence'];
     sakSwapInfo?: Transponder['sakSwapInfo'];
     implantName?: string;
+    temperature?: Transponder['temperature'];
+    temperature2?: Transponder['temperature2'];
+    installedApplets?: string[];
+    storageInfo?: Transponder['storageInfo'];
   } = {},
 ): Transponder {
   const cloneInfo = CHIP_CLONEABILITY[type];
@@ -69,18 +74,25 @@ function createTransponder(
     versionInfo: options.versionInfo,
     sakSwapInfo,
     implantName: options.implantName,
+    temperature: options.temperature,
+    temperature2: options.temperature2,
+    installedApplets: options.installedApplets,
+    storageInfo: options.storageInfo,
     confidence: options.confidence ?? 'medium',
     detectedOn: Platform.OS as 'ios' | 'android',
   };
 }
 
 /**
- * Determine implant name based on detected JavaCard applets
+ * Determine implant name based on detected JavaCard applets and Fidesmo flag
  * - Fidesmo indicates Apex (only Apex has Fidesmo platform)
- * - JavaCard Memory indicates Apex or flexSecure (both have it)
+ * - JavaCard Memory without Fidesmo indicates flexSecure
  * - Payment applets indicate this is a payment card, not an implant
  */
-function getJavacardImplantName(installedApplets?: string[]): string | undefined {
+function getJavacardImplantName(
+  installedApplets?: string[],
+  isFidesmo?: boolean,
+): string | undefined {
   if (!installedApplets || installedApplets.length === 0) {
     return undefined;
   }
@@ -93,14 +105,14 @@ function getJavacardImplantName(installedApplets?: string[]): string | undefined
     return network ? `${network} Payment Card` : 'Payment Card';
   }
 
-  // Fidesmo is only on Apex
-  if (installedApplets.includes('Fidesmo')) {
+  // Fidesmo detected (via AID probe or memory fingerprint) — definitely Apex
+  if (isFidesmo || installedApplets.includes('Fidesmo')) {
     return 'Apex';
   }
 
-  // JavaCard Memory is on both Apex and flexSecure
+  // JavaCard Memory present without Fidesmo — flexSecure
   if (installedApplets.includes('JavaCard Memory')) {
-    return 'Apex/flexSecure';
+    return 'flexSecure';
   }
 
   return undefined;
@@ -293,6 +305,18 @@ export async function detectChip(
       onProgress?.('Reading DESFire version...');
       const desfireResult = await detectDesfire();
       if (desfireResult.success && desfireResult.chipType) {
+        // Enumerate DESFire applications (best-effort, must run before ISO 7816 SELECT)
+        let desfireAppLabels: string[] | undefined;
+        try {
+          onProgress?.('Enumerating DESFire applications...');
+          const apps = await enumerateDesfireApps();
+          if (apps.length > 0) {
+            desfireAppLabels = formatDesfireApps(apps);
+          }
+        } catch (e) {
+          console.warn('[Detector] DESFire app enumeration failed:', e);
+        }
+
         // Check for Spark 2 implant on NTAG 424 DNA / NTAG 413 DNA
         let implantName: string | undefined;
         const isNtagDna =
@@ -332,6 +356,7 @@ export async function detectChip(
                 ? 'medium'
                 : 'high',
             implantName,
+            installedApplets: desfireAppLabels,
           }),
         };
       }
@@ -358,14 +383,28 @@ export async function detectChip(
         onProgress?.('Probing JavaCard applets...');
         const jcResult = await detectJavaCard();
         if (jcResult.success && jcResult.chipType) {
-          // Determine implant name based on detected applets
-          const implantName = getJavacardImplantName(jcResult.installedApplets);
+          const implantName = getJavacardImplantName(
+            jcResult.installedApplets,
+            jcResult.isFidesmo,
+          );
+          // Read storage info
+          let storageInfo: Transponder['storageInfo'];
+          try {
+            const mem = await getJavacardStorageInfo();
+            if (mem) {
+              storageInfo = mem;
+            }
+          } catch {
+            // Storage read is best-effort
+          }
           return {
             success: true,
             transponder: createTransponder(jcResult.chipType, rawData, {
               confidence:
                 jcResult.chipType === ChipType.JCOP4 ? 'high' : 'medium',
               implantName,
+              installedApplets: jcResult.installedApplets,
+              storageInfo,
             }),
           };
         }
@@ -390,13 +429,27 @@ export async function detectChip(
       onProgress?.('Probing for smartcard applets...');
       const jcFallback = await detectJavaCard();
       if (jcFallback.success && jcFallback.chipType) {
-        // Determine implant name based on detected applets
-        const implantName = getJavacardImplantName(jcFallback.installedApplets);
+        const implantName = getJavacardImplantName(
+          jcFallback.installedApplets,
+          jcFallback.isFidesmo,
+        );
+        // Read storage info
+        let fallbackStorageInfo: Transponder['storageInfo'];
+        try {
+          const mem = await getJavacardStorageInfo();
+          if (mem) {
+            fallbackStorageInfo = mem;
+          }
+        } catch {
+          // Storage read is best-effort
+        }
         return {
           success: true,
           transponder: createTransponder(jcFallback.chipType, rawData, {
             confidence: 'medium',
             implantName,
+            installedApplets: jcFallback.installedApplets,
+            storageInfo: fallbackStorageInfo,
           }),
         };
       }
@@ -448,17 +501,53 @@ export async function detectChip(
               ? 'high'
               : 'medium';
 
-        // Check for Spark implant by reading NDEF for vivokey.co URL
         let implantName: string | undefined;
-        try {
-          onProgress?.('Reading NDEF for Spark 1...');
-          const sparkResult = await detectSparkImplant(iso15693Result.chipType);
-          if (sparkResult.found && sparkResult.name) {
-            implantName = sparkResult.name;
-            console.log('[Detector] Found Spark implant:', implantName);
+
+        // For NTAG5 Boost/Link: check for sensor implants (Temptress, VK Thermo)
+        const isNtag5WithI2c =
+          iso15693Result.chipType === ChipType.NTAG5_BOOST ||
+          iso15693Result.chipType === ChipType.NTAG5_LINK;
+
+        let sensorTemperature: Transponder['temperature'];
+        let sensorTemperature2: Transponder['temperature2'];
+
+        if (isNtag5WithI2c && iso15693Result.uid) {
+          try {
+            onProgress?.('Probing I2C sensors...');
+            const sensorResult = await detectNtag5SensorImplant(
+              iso15693Result.uid,
+              iso15693Result.afi,
+              iso15693Result.dsfid,
+            );
+            if (sensorResult.detected && sensorResult.implantName) {
+              implantName = sensorResult.implantName;
+              sensorTemperature = sensorResult.temperature;
+              sensorTemperature2 = sensorResult.temperature2;
+              console.log(
+                '[Detector] Found sensor implant:',
+                implantName,
+                `(${sensorResult.deviceType}, ${sensorResult.sensorType})`,
+              );
+            }
+          } catch (e) {
+            console.warn('[Detector] NTAG5 sensor detection failed:', e);
+            // Sensor probing failure does NOT block basic chip identification
           }
-        } catch (e) {
-          console.warn('[Detector] Spark detection failed:', e);
+        }
+
+        // Check for Spark implant by reading NDEF for vivokey.co URL
+        // (only if we haven't already identified the implant)
+        if (!implantName) {
+          try {
+            onProgress?.('Reading NDEF for Spark 1...');
+            const sparkResult = await detectSparkImplant(iso15693Result.chipType);
+            if (sparkResult.found && sparkResult.name) {
+              implantName = sparkResult.name;
+              console.log('[Detector] Found Spark implant:', implantName);
+            }
+          } catch (e) {
+            console.warn('[Detector] Spark detection failed:', e);
+          }
         }
 
         return {
@@ -466,6 +555,8 @@ export async function detectChip(
           transponder: createTransponder(iso15693Result.chipType, rawData, {
             confidence,
             implantName,
+            temperature: sensorTemperature,
+            temperature2: sensorTemperature2,
           }),
         };
       }

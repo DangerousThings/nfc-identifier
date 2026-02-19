@@ -89,6 +89,10 @@ export enum ChipFamily {
  * Get the chip family for a chip type
  */
 export function getChipFamily(type: ChipType): ChipFamily {
+  // NTAG5 is ISO 15693 / NFC Type 5 — must check before generic NTAG
+  if (type.startsWith('NTAG5')) {
+    return ChipFamily.ISO15693;
+  }
   if (type.startsWith('NTAG')) {
     return ChipFamily.NTAG;
   }
@@ -192,6 +196,23 @@ export interface Transponder {
 
   /** Implant name found in memory (for Type 2 tags) */
   implantName?: string;
+
+  /** Temperature reading from sensor (VK Thermo / Temptress) */
+  temperature?: { celsius: number; fahrenheit: number };
+
+  /** Second temperature reading (Temptress dual-sensor only) */
+  temperature2?: { celsius: number; fahrenheit: number };
+
+  /** Installed applets (JavaCard only) */
+  installedApplets?: string[];
+
+  /** Storage info from JavaCard Memory applet */
+  storageInfo?: {
+    persistentFree: number;
+    persistentTotal: number;
+    transientResetFree: number;
+    transientDeselectFree: number;
+  };
 
   /** Detection confidence level */
   confidence: 'high' | 'medium' | 'low';
@@ -330,18 +351,18 @@ export const CHIP_CLONEABILITY: Record<
   [ChipType.NTAG_I2C_PLUS_1K]: {cloneable: true, note: 'I2C interface not cloneable'},
   [ChipType.NTAG_I2C_PLUS_2K]: {cloneable: true, note: 'I2C interface not cloneable'},
 
-  // NTAG 5 family - NOT cloneable (originality signature, password protection)
+  // NTAG 5 family - password and optional AES-128 mutual authentication
   [ChipType.NTAG5_LINK]: {
     cloneable: false,
-    note: 'Originality signature prevents cloning',
+    note: 'Password and AES mutual authentication protect data access',
   },
   [ChipType.NTAG5_BOOST]: {
     cloneable: false,
-    note: 'Originality signature prevents cloning',
+    note: 'Password and AES mutual authentication protect data access',
   },
   [ChipType.NTAG5_SWITCH]: {
     cloneable: false,
-    note: 'Originality signature prevents cloning',
+    note: 'Password and AES mutual authentication protect data access',
   },
 
   // NTAG DNA family - NOT cloneable (AES-128 crypto, originality signature)
