@@ -1,0 +1,10 @@
+Initial F-Droid release.
+
+- Scan NFC transponders to identify chip type
+- Match detected chips to compatible Dangerous Things implants
+- Support for NTAG, MIFARE Classic, DESFire, SLIX, JavaCard chips
+- DESFire application enumeration with 130+ known AID profiles
+- JavaCard applet detection (OpenPGP, FIDO2, PIV, OATH, and more)
+- NTAG5 temperature sensor readout for VK Thermo implants
+- Educational chip information and security details
+- Fully offline operation

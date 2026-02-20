@@ -1,0 +1,30 @@
+Scan any NFC transponder with your phone and find out which Dangerous Things implant is compatible with it. If your card or fob can be replaced with an implant, this app will tell you which one.
+
+How it works:
+
+1. Scan - Hold your phone to any NFC card, fob, or tag
+2. Identify - The app detects the exact chip type (NTAG, MIFARE Classic, DESFire, etc.)
+3. Match - See which Dangerous Things implant products are compatible
+4. Learn - Get details about the chip, cloneability, and implant options
+
+Supported chip types:
+
+- NTAG: NTAG213, NTAG215, NTAG216, NTAG I2C
+- NTAG DNA: NTAG 413 DNA, NTAG 424 DNA, NTAG 424 DNA TT
+- MIFARE Classic: Classic 1K, Classic 4K, Classic Mini
+- MIFARE DESFire: EV1, EV2, EV3, DESFire Light
+- MIFARE Ultralight: Ultralight, Ultralight C, EV1, Nano, AES
+- MIFARE Plus: Plus S, Plus X, Plus SE, Plus EV1
+- ISO 15693: ICODE SLIX, SLIX2, SLIX-S, SLIX-L, NTAG 5
+- JavaCard: JCOP4 / J3R180 (Apex, flexSecure)
+
+Advanced features:
+
+- DESFire application enumeration: identifies installed apps from a database of 130+ known AIDs covering access control (HID SEOS, Gallagher, Salto), transit (ORCA, Clipper, Oyster, Opal), student cards, and more
+- JavaCard applet detection: probes for OpenPGP, FIDO2, PIV, OATH, and other installed applets
+- NTAG5 sensor readout: reads temperature from VK Thermo implants
+- Cloneability assessment: tells you whether data can be migrated to an implant
+
+The app works entirely offline. All chip detection and product matching happens on-device. No account required.
+
+Anti-features: This app appends UTM parameters to outbound product links for analytics when you tap to visit external websites.

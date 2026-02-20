@@ -408,7 +408,7 @@ async function probeApplets(): Promise<string[]> {
     const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.oath));
     const parsed = parseApduResponse(response);
     if (parsed.isSuccess) {
-      found.push('OATH');
+      found.push('OATH (OTP)');
     }
   } catch {
     // Applet not present
