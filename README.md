@@ -71,6 +71,12 @@ npx expo run:ios
 
 NFC cannot be tested in simulators. A physical device is required.
 
+## Privacy
+
+This app works entirely offline. All chip detection and product matching happens on-device. No data is collected or transmitted during scanning. Outbound product links include UTM parameters for analytics — no personal data or scan results are sent.
+
+Full privacy details: [NFC Identifier App - Dangerous Things Forum](https://forum.dangerousthings.com/t/nfc-identifier-app/27765)
+
 ## License
 
-Copyright Dangerous Things LLC. All rights reserved.
+[GNU Affero General Public License v3.0](LICENSE)
