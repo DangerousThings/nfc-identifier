@@ -27,7 +27,7 @@ This roadmap is optimized for AI-assisted development with context window effici
    - `@react-navigation/native` + `@react-navigation/native-stack`
    - `react-native-nfc-manager`
    - `expo-font` (for Tektur)
-3. Link the DT theme package (`../react-native-dt-theme`)
+3. Install the DT theme package (`@dangerousthings/react-native` from npm, or `../dt-design-system/packages/react-native` locally)
 4. Use DTThemeProvider from the theme package
    - `colors.ts` - DT color palette
    - `typography.ts` - Tektur font setup

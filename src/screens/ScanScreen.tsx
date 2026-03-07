@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Button, Text } from 'react-native-paper';
-import { DTButton, DTColors } from 'react-native-dt-theme';
+import { DTButton, DTColors } from '@dangerousthings/react-native';
 import type { ScanScreenProps } from '../types/navigation';
 import { useScan } from '../hooks';
 import { getScanInstructions } from '../services/nfc';
@@ -157,6 +157,7 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
           {Platform.OS === 'android' && (
             <DTButton
               variant="emphasis"
+              mode="contained"
               onPress={openSettings}
               style={styles.settingsButton}>
               OPEN SETTINGS

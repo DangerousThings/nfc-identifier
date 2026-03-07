@@ -360,3 +360,30 @@ When resuming work, start with:
 3. "Need to implement [specific detector/component]"
 
 Always check `package.json` and run `npm install` if dependencies seem missing.
+
+## Migrate to @dangerousthings/react-native (Monorepo)
+
+The `react-native-dt-theme` package has been consolidated into the `dt-design-system`
+monorepo and published to npm as `@dangerousthings/react-native` (v0.1.0).
+
+**Full plan:** See `/home/work/dt-web-theme/MONOREPO_PLAN.md`
+
+**Migration steps for this project:**
+
+1. Update dependency in `package.json`:
+   ```diff
+   - "react-native-dt-theme": "^0.3.0"
+   + "@dangerousthings/react-native": "^0.1.0"
+   ```
+
+2. Update all imports:
+   ```diff
+   - import { DTButton, DTCard, ... } from 'react-native-dt-theme';
+   + import { DTButton, DTCard, ... } from '@dangerousthings/react-native';
+   ```
+
+3. Component names and props remain unchanged — this is a dependency swap only.
+
+4. Run `npm install && npm run typecheck` to verify.
+
+**Status:** Ready to migrate — packages are published on npm under `@dangerousthings` scope.

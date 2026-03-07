@@ -1,7 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, Linking, TouchableOpacity, Animated } from 'react-native';
+import { StyleSheet, View, ScrollView, Linking, TouchableOpacity, Animated, LayoutAnimation, UIManager, Platform } from 'react-native';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
-import { DTCard, DTButton, DTColors, DTLabel, DTChip } from 'react-native-dt-theme';
+import { DTCard, DTButton, DTColors, DTLabel, DTChip } from '@dangerousthings/react-native';
 
 // Animated section wrapper for staggered entry
 interface AnimatedSectionProps {
@@ -47,6 +52,21 @@ import { getChipFamily } from '../types/detection';
 export function ResultScreen({ route, navigation }: ResultScreenProps) {
   const { tagData, transponder } = route.params;
   const [showChipInfo, setShowChipInfo] = useState(false);
+  const chipInfoArrowRotation = useRef(new Animated.Value(0)).current;
+
+  const toggleChipInfo = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.create(
+      300,
+      LayoutAnimation.Types.easeInEaseOut,
+      LayoutAnimation.Properties.opacity,
+    ));
+    Animated.timing(chipInfoArrowRotation, {
+      toValue: showChipInfo ? 0 : 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+    setShowChipInfo(!showChipInfo);
+  };
 
   // Match chip to products
   const matchResult = useMemo(() => {
@@ -320,15 +340,22 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
           <AnimatedSection delay={delays.aboutChip}>
             <Surface style={styles.chipInfoCard} elevation={1}>
               <TouchableOpacity
-                onPress={() => setShowChipInfo(!showChipInfo)}
+                onPress={toggleChipInfo}
                 style={styles.chipInfoHeader}
                 activeOpacity={0.7}>
                 <Text variant="labelLarge" style={styles.chipInfoLabel}>
                   ABOUT THIS CHIP
                 </Text>
-                <Text style={styles.expandIndicator}>
-                  {showChipInfo ? '▼' : '▶'}
-                </Text>
+                <Animated.Text style={[styles.expandIndicator, {
+                  transform: [{
+                    rotate: chipInfoArrowRotation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '90deg'],
+                    }),
+                  }],
+                }]}>
+                  ▶
+                </Animated.Text>
               </TouchableOpacity>
 
               {showChipInfo && (
@@ -477,10 +504,10 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 </View>
 
                 <DTButton
+                  mode="contained"
                   onPress={() => handleProductLink(product)}
                 >
                   VIEW PRODUCT
-
                 </DTButton>
               </DTCard>
             </AnimatedSection>
@@ -629,6 +656,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                 Need help? Ask on our forum for assistance.
               </Text>
               <DTButton
+                mode="contained"
                 onPress={() => Linking.openURL(buildTrackedUrl('https://dngr.us/forum', 'unknown_chip'))}
               >
                 VISIT FORUM

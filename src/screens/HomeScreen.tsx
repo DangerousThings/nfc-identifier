@@ -1,13 +1,16 @@
 import React from 'react';
 import {StyleSheet, View} from 'react-native';
 import {Text, Surface} from 'react-native-paper';
-import {DTButton, DTColors} from 'react-native-dt-theme';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {DTButton, DTColors} from '@dangerousthings/react-native';
 import type {HomeScreenProps} from '../types/navigation';
 
 export function HomeScreen({navigation}: HomeScreenProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
-      <Surface style={styles.header} elevation={0}>
+      <Surface style={[styles.header, {paddingTop: insets.top + 20}]} elevation={0}>
         <Text variant="displaySmall" style={styles.title}>
           DANGEROUS THINGS
         </Text>
@@ -28,7 +31,7 @@ export function HomeScreen({navigation}: HomeScreenProps) {
         </DTButton>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, {paddingBottom: Math.max(insets.bottom, 20)}]}>
         <Text variant="bodySmall" style={styles.footerText}>
           dngr.us
         </Text>
@@ -45,7 +48,6 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    paddingTop: 60,
     paddingBottom: 40,
     backgroundColor: 'transparent',
   },
@@ -73,7 +75,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center',
-    paddingBottom: 20,
   },
   footerText: {
     color: DTColors.modeNormal,

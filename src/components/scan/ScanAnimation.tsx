@@ -6,7 +6,7 @@
 
 import React, {useEffect, useRef} from 'react';
 import {View, StyleSheet, Animated, Easing} from 'react-native';
-import {DTColors} from '../../theme';
+import {DTColors} from '@dangerousthings/react-native';
 
 interface ScanAnimationProps {
   /** Whether the animation is active */

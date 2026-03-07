@@ -3,7 +3,7 @@
     "name": "DT NFC Transponder Identifier",
     "slug": "dt-nfc-transponder-identifier",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -19,7 +19,7 @@
       }
     },
     "android": {
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"

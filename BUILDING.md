@@ -10,7 +10,7 @@
 
 ```bash
 npm install
-npx expo prebuild --clean --platform android
+ynpx expo prebuild --clean --platform android
 cd android && ./gradlew assembleRelease
 ```
 

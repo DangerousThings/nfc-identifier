@@ -1,0 +1,5 @@
+Edge-to-edge display support for Android 15+.
+Migrated to @dangerousthings/react-native design system.
+Removed orientation lock for large screen compatibility.
+Animated chip info accordion on results screen.
+Contained button style for action buttons.
