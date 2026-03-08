@@ -1,0 +1,3 @@
+Added OTA update support for faster bug fixes and product catalog updates.
+Enabled ProGuard for improved crash reporting and smaller binary size.
+Configured EAS Build with beta and production update channels.

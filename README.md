@@ -5,11 +5,10 @@ Scan any NFC transponder with your phone and find out which [Dangerous Things](h
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/dt_nfc_identifier_main.png" width="200" alt="Home screen">
-  <img src="screenshots/dt_nfc_identifier_scanning.png" width="200" alt="Scanning for NFC tag">
-  <img src="screenshots/dt_nfc_identifier_result_ntag216.png" width="200" alt="NTAG216 result with compatible implants">
-  <img src="screenshots/dt_nfc_identifier_result_mfc.png" width="200" alt="MIFARE Classic 1K result">
-  <img src="screenshots/dt_nfc_result_desfire.png" width="200" alt="DESFire EV3 result">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="200" alt="Screenshot 1">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="200" alt="Screenshot 2">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="200" alt="Screenshot 3">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="200" alt="Screenshot 4">
 </p>
 
 ## What It Does

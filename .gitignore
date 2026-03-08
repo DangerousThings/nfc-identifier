@@ -37,7 +37,7 @@ secrets.json
 *.jks
 keystore.properties
 local.properties
-google-services.json
+nfc-identifier-*.json
 
 # iOS signing & certificates
 *.cer
@@ -63,6 +63,7 @@ apikey*
 firebase-adminsdk*.json
 serviceAccountKey*.json
 *-firebase-adminsdk-*.json
+*service-account*.json
 
 # AWS
 .aws/

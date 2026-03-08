@@ -20,12 +20,33 @@
         "buildType": "apk"
       }
     },
+    "beta": {
+      "channel": "beta",
+      "android": {
+        "buildType": "app-bundle",
+        "enableProguardInReleaseBuilds": true
+      }
+    },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "android": {
+        "enableProguardInReleaseBuilds": true
+      }
     }
   },
   "submit": {
-    "production": {}
+    "beta": {
+      "android": {
+        "serviceAccountKeyPath": "./nfc-identifier-f28151ad3f34.json",
+        "track": "internal"
+      }
+    },
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./nfc-identifier-f28151ad3f34.json",
+        "track": "production"
+      }
+    }
   }
 }
