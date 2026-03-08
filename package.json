@@ -21,7 +21,7 @@
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.32",
     "expo-status-bar": "^3.0.9",
-    "expo-updates": "^55.0.12",
+    "expo-updates": "~29.0.16",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-nfc-manager": "^3.17.2",
