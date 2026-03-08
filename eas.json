@@ -6,19 +6,23 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "beta"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "beta"
     },
     "preview-apk": {
       "distribution": "internal",
+      "channel": "beta",
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "channel": "production"
     }
   },
   "submit": {
