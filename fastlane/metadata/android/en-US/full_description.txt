@@ -27,4 +27,4 @@ Advanced features:
 
 The app works entirely offline. All chip detection and product matching happens on-device. No account required.
 
-Anti-features: This app appends UTM parameters to outbound product links for analytics when you tap to visit external websites.
+Anti-features: This app appends UTM parameters to outbound product links for analytics when you tap to visit external websites. The F-Droid build contains no OTA update mechanism and makes no network calls to Expo or other proprietary services. All updates are delivered through the F-Droid repository.

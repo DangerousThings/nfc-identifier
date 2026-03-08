@@ -17,7 +17,8 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "types": [
-      "jest"
+      "jest",
+      "node"
     ]
   },
   "include": [
@@ -29,8 +30,7 @@
   "exclude": [
     "node_modules",
     "android",
-    "ios",
-    "../react-native-dt-theme"
+    "ios"
   ],
   "extends": "expo/tsconfig.base"
 }
