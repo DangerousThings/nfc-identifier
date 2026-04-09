@@ -6,8 +6,10 @@
 import {useState, useCallback, useEffect, useRef} from 'react';
 import {nfcManager} from '../services/nfc';
 import {detectChip} from '../services/detection';
+import {sampleCollector} from '../services/motion';
 import type {ScanState, RawTagData, ScanError, NFCStatus} from '../types/nfc';
 import type {Transponder} from '../types/detection';
+import type {ConsentStatus} from '../types/motion';
 
 /** Progress update during scanning */
 export interface ScanProgress {
@@ -51,7 +53,8 @@ interface ScanResult {
   transponder: Transponder | null | undefined;
 }
 
-export function useScan(): UseScanResult {
+export function useScan(consentStatus?: ConsentStatus): UseScanResult {
+  const canCapture = consentStatus === 'opted_in';
   const [state, setState] = useState<ScanState>('idle');
   // Use combined state to ensure tag and transponder update atomically
   const [scanResult, setScanResult] = useState<ScanResult>({
@@ -101,6 +104,12 @@ export function useScan(): UseScanResult {
     }
 
     scanInProgress.current = true;
+
+    // Capture motion data at moment user initiates scan
+    if (canCapture) {
+      sampleCollector.captureSample('scan_initiated');
+    }
+
     setState('scanning');
     setScanResult({ tag: null, transponder: undefined });
     setError(null);
@@ -168,6 +177,10 @@ export function useScan(): UseScanResult {
         } else {
           setState('error');
           setError(result.error);
+
+          if (canCapture) {
+            sampleCollector.captureSample('scan_timeout');
+          }
         }
       } else if (result.tag) {
         const detectedTransponder = result.detection ?? null;
@@ -182,6 +195,10 @@ export function useScan(): UseScanResult {
           transponder: detectedTransponder,
         });
         setState('success');
+
+        if (canCapture) {
+          sampleCollector.captureSample('scan_success');
+        }
       } else {
         setState('error');
         setError({

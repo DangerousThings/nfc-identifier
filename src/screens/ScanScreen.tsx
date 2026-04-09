@@ -4,10 +4,12 @@ import { Button, Text } from 'react-native-paper';
 import { DTButton, DTColors } from '@dangerousthings/react-native';
 import type { ScanScreenProps } from '../types/navigation';
 import { useScan } from '../hooks';
+import { useDataConsent } from '../hooks/useDataConsent';
 import { getScanInstructions } from '../services/nfc';
 import { ScanAnimation } from '../components';
 
 export function ScanScreen({ navigation }: ScanScreenProps) {
+  const { consentStatus } = useDataConsent();
   const {
     state,
     tag,
@@ -18,7 +20,7 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
     startScan,
     cancelScan,
     openSettings,
-  } = useScan();
+  } = useScan(consentStatus);
 
   // Track if we've already navigated to prevent double navigation
   const hasNavigated = React.useRef(false);

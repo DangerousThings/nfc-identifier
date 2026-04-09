@@ -1,12 +1,58 @@
-import React from 'react';
-import {StyleSheet, View} from 'react-native';
+import React, {useState, useCallback} from 'react';
+import {StyleSheet, View, Share, Alert} from 'react-native';
 import {Text, Surface} from 'react-native-paper';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {DTButton, DTColors} from '@dangerousthings/react-native';
+import {DTButton, DTColors, DTSwitch} from '@dangerousthings/react-native';
+import {useDataConsent} from '../hooks/useDataConsent';
+import {sampleCollector} from '../services/motion';
 import type {HomeScreenProps} from '../types/navigation';
 
 export function HomeScreen({navigation}: HomeScreenProps) {
   const insets = useSafeAreaInsets();
+  const {consentStatus, setConsent, clearLocalData} = useDataConsent();
+  const [showSettings, setShowSettings] = useState(false);
+
+  const handleToggleConsent = useCallback(
+    async (value: boolean) => {
+      await setConsent(value ? 'opted_in' : 'opted_out');
+    },
+    [setConsent],
+  );
+
+  const handleDeleteData = useCallback(() => {
+    Alert.alert(
+      'Delete Motion Data',
+      'This will delete all locally stored motion samples and clear the upload queue. This cannot be undone.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await clearLocalData();
+            await sampleCollector.clearSamples();
+            Alert.alert('Deleted', 'All local motion data has been cleared.');
+          },
+        },
+      ],
+    );
+  }, [clearLocalData]);
+
+  const handleExport = useCallback(async () => {
+    const samples = await sampleCollector.exportSamples();
+    if (samples.length === 0) {
+      Alert.alert('No Data', 'No motion samples to export.');
+      return;
+    }
+
+    const json = JSON.stringify(samples, null, 2);
+    const sizeKB = Math.round(json.length / 1024);
+
+    await Share.share({
+      message: json,
+      title: `motion-data-${samples.length}-samples-${sizeKB}KB.json`,
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -29,6 +75,45 @@ export function HomeScreen({navigation}: HomeScreenProps) {
           onPress={() => navigation.navigate('Scan')}>
           START SCAN
         </DTButton>
+      </View>
+
+      <View style={styles.settingsSection}>
+        <DTButton
+          variant="other"
+          mode="outlined"
+          onPress={() => setShowSettings(s => !s)}
+          style={styles.settingsToggle}>
+          {showSettings ? 'HIDE SETTINGS' : 'SETTINGS'}
+        </DTButton>
+
+        {showSettings && (
+          <View style={styles.settingsContent}>
+            <DTSwitch
+              value={consentStatus === 'opted_in'}
+              onValueChange={handleToggleConsent}
+              label="Share motion data to improve scanning"
+              variant="normal"
+            />
+
+            <View style={styles.settingsButtons}>
+              <DTButton
+                variant="other"
+                mode="outlined"
+                onPress={handleExport}
+                style={styles.settingsButton}>
+                EXPORT DATA
+              </DTButton>
+
+              <DTButton
+                variant="warning"
+                mode="outlined"
+                onPress={handleDeleteData}
+                style={styles.settingsButton}>
+                DELETE MY DATA
+              </DTButton>
+            </View>
+          </View>
+        )}
       </View>
 
       <View style={[styles.footer, {paddingBottom: Math.max(insets.bottom, 20)}]}>
@@ -72,6 +157,23 @@ const styles = StyleSheet.create({
     marginBottom: 48,
     opacity: 0.9,
     paddingHorizontal: 20,
+  },
+  settingsSection: {
+    marginBottom: 16,
+  },
+  settingsToggle: {
+    marginBottom: 12,
+  },
+  settingsContent: {
+    paddingVertical: 12,
+  },
+  settingsButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  settingsButton: {
+    flex: 1,
   },
   footer: {
     alignItems: 'center',

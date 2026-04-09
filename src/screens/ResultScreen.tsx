@@ -48,11 +48,25 @@ import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getM
 import { Product } from '../types/products';
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
 import { getChipFamily } from '../types/detection';
+import { useDataConsent } from '../hooks/useDataConsent';
+import { sampleCollector } from '../services/motion';
 
 export function ResultScreen({ route, navigation }: ResultScreenProps) {
   const { tagData, transponder } = route.params;
   const [showChipInfo, setShowChipInfo] = useState(false);
   const chipInfoArrowRotation = useRef(new Animated.Value(0)).current;
+  const { consentStatus } = useDataConsent();
+
+  // Periodic idle baseline capture for motion data collection
+  useEffect(() => {
+    if (consentStatus !== 'opted_in') return;
+
+    const interval = setInterval(() => {
+      sampleCollector.captureSample('app_idle');
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [consentStatus]);
 
   const toggleChipInfo = () => {
     LayoutAnimation.configureNext(LayoutAnimation.create(

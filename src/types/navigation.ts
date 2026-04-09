@@ -12,6 +12,7 @@ export type TagDataParam = {
 };
 
 export type RootStackParamList = {
+  DataConsent: undefined;
   Home: undefined;
   Scan: undefined;
   Result: {
@@ -20,6 +21,10 @@ export type RootStackParamList = {
   };
 };
 
+export type DataConsentScreenProps = NativeStackScreenProps<
+  RootStackParamList,
+  'DataConsent'
+>;
 export type HomeScreenProps = NativeStackScreenProps<RootStackParamList, 'Home'>;
 export type ScanScreenProps = NativeStackScreenProps<RootStackParamList, 'Scan'>;
 export type ResultScreenProps = NativeStackScreenProps<
