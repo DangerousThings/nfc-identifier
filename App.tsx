@@ -10,7 +10,7 @@ import {
   ScanScreen,
   ResultScreen,
 } from './src/screens';
-import {useDataConsent} from './src/hooks/useDataConsent';
+import {DataConsentProvider, useDataConsent} from './src/hooks/useDataConsent';
 import {useMotionMonitor} from './src/hooks/useMotionMonitor';
 import type {RootStackParamList} from './src/types/navigation';
 
@@ -91,16 +91,18 @@ function AppNavigator() {
 
 function App() {
   return (
-    <DTThemeProvider>
-      <StatusBar
-        barStyle="light-content"
-        translucent
-        backgroundColor="transparent"
-      />
-      <NavigationContainer theme={NavigationTheme}>
-        <AppNavigator />
-      </NavigationContainer>
-    </DTThemeProvider>
+    <DataConsentProvider>
+      <DTThemeProvider>
+        <StatusBar
+          barStyle="light-content"
+          translucent
+          backgroundColor="transparent"
+        />
+        <NavigationContainer theme={NavigationTheme}>
+          <AppNavigator />
+        </NavigationContainer>
+      </DTThemeProvider>
+    </DataConsentProvider>
   );
 }
 

@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {MotionSample} from '../../types/motion';
 
-const WEBDAV_URL = 'https://office.dngr.us/public.php/webdav/';
+const WEBDAV_URL = 'https://office.dngr.us/public.php/webdav/uploads/';
 // Pre-computed: base64("TJ6dgd7kjQmgBPA:") — share token with empty password
 const AUTH_HEADER = 'Basic VEo2ZGdkN2tqUW1nQlBBOg==';
 
@@ -43,6 +43,7 @@ async function uploadOne(sample: MotionSample): Promise<boolean> {
   const url = `${WEBDAV_URL}${filename}`;
 
   try {
+    console.log(`[Motion] Uploading to ${url}`);
     const response = await fetch(url, {
       method: 'PUT',
       headers: {
@@ -51,9 +52,11 @@ async function uploadOne(sample: MotionSample): Promise<boolean> {
       },
       body: JSON.stringify(sample),
     });
+    console.log(`[Motion] Upload response: ${response.status} ${response.statusText}`);
     // Nextcloud returns 201 Created or 204 No Content on success
     return response.status >= 200 && response.status < 300;
-  } catch {
+  } catch (err) {
+    console.log(`[Motion] Upload error:`, err);
     return false;
   }
 }

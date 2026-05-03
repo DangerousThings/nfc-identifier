@@ -26,13 +26,17 @@ function getOsVersion(): string {
 export class SampleCollector {
   async captureSample(label: MotionLabel): Promise<void> {
     if (!motionMonitor.isRunning) {
+      console.log(`[Motion] Skipping ${label} capture — monitor not running`);
       return;
     }
 
     const readings = motionMonitor.snapshot(SNAPSHOT_DURATION_MS);
     if (readings.length === 0) {
+      console.log(`[Motion] Skipping ${label} capture — no readings in buffer`);
       return;
     }
+
+    console.log(`[Motion] Capturing ${label} — ${readings.length} readings`);
 
     const sample: MotionSample = {
       id: Crypto.randomUUID(),
@@ -49,9 +53,12 @@ export class SampleCollector {
 
     // Store locally
     await this.storeSample(sample);
+    console.log(`[Motion] Stored ${label} sample (${sample.id.slice(0, 8)})`);
 
     // Upload (queues on failure)
-    uploadService.upload(sample);
+    uploadService.upload(sample).then(ok => {
+      console.log(`[Motion] Upload ${ok ? 'succeeded' : 'queued'} (${sample.id.slice(0, 8)})`);
+    });
   }
 
   private async storeSample(sample: MotionSample): Promise<void> {

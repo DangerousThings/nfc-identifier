@@ -1,9 +1,15 @@
 /**
- * useDataConsent Hook
- * Manages user consent for motion data collection
+ * useDataConsent Hook + Context
+ * Shared consent state for motion data collection
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  createContext,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {ConsentStatus} from '../types/motion';
 
@@ -16,7 +22,9 @@ export interface UseDataConsentResult {
   clearLocalData: () => Promise<void>;
 }
 
-export function useDataConsent(): UseDataConsentResult {
+const DataConsentContext = createContext<UseDataConsentResult | null>(null);
+
+export function DataConsentProvider({children}: {children: React.ReactNode}) {
   const [consentStatus, setConsentStatus] = useState<ConsentStatus>('loading');
 
   useEffect(() => {
@@ -41,5 +49,19 @@ export function useDataConsent(): UseDataConsentResult {
     await AsyncStorage.removeItem(SAMPLES_KEY);
   }, []);
 
-  return {consentStatus, setConsent, clearLocalData};
+  const value = {consentStatus, setConsent, clearLocalData};
+
+  return React.createElement(
+    DataConsentContext.Provider,
+    {value},
+    children,
+  );
+}
+
+export function useDataConsent(): UseDataConsentResult {
+  const context = useContext(DataConsentContext);
+  if (!context) {
+    throw new Error('useDataConsent must be used within DataConsentProvider');
+  }
+  return context;
 }

@@ -29,6 +29,7 @@ export class MotionMonitor {
     this.buffer.clear();
     this.startTime = Date.now();
 
+    console.log('[Motion] Starting motion monitor at', SAMPLING_RATE_HZ, 'Hz');
     DeviceMotion.setUpdateInterval(Math.round(1000 / SAMPLING_RATE_HZ));
 
     this.subscription = DeviceMotion.addListener(
@@ -49,6 +50,7 @@ export class MotionMonitor {
 
   stop(): void {
     if (this.subscription) {
+      console.log('[Motion] Stopping motion monitor');
       this.subscription.remove();
       this.subscription = null;
     }

@@ -23,16 +23,12 @@
     "beta": {
       "channel": "beta",
       "android": {
-        "buildType": "app-bundle",
-        "enableProguardInReleaseBuilds": true
+        "buildType": "app-bundle"
       }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production",
-      "android": {
-        "enableProguardInReleaseBuilds": true
-      }
+      "channel": "production"
     }
   },
   "submit": {

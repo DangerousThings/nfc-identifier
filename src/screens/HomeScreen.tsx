@@ -1,8 +1,9 @@
 import React, {useState, useCallback} from 'react';
-import {StyleSheet, View, Share, Alert} from 'react-native';
+import {StyleSheet, View, Alert} from 'react-native';
 import {Text, Surface} from 'react-native-paper';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {DTButton, DTColors, DTSwitch} from '@dangerousthings/react-native';
+import * as Clipboard from 'expo-clipboard';
 import {useDataConsent} from '../hooks/useDataConsent';
 import {sampleCollector} from '../services/motion';
 import type {HomeScreenProps} from '../types/navigation';
@@ -39,19 +40,22 @@ export function HomeScreen({navigation}: HomeScreenProps) {
   }, [clearLocalData]);
 
   const handleExport = useCallback(async () => {
-    const samples = await sampleCollector.exportSamples();
-    if (samples.length === 0) {
-      Alert.alert('No Data', 'No motion samples to export.');
-      return;
+    try {
+      const samples = await sampleCollector.exportSamples();
+      console.log(`[Motion] Export: ${samples.length} samples found`);
+      if (samples.length === 0) {
+        Alert.alert('No Data', 'No motion samples to export.');
+        return;
+      }
+
+      const json = JSON.stringify(samples);
+      await Clipboard.setStringAsync(json);
+      console.log(`[Motion] Copied ${samples.length} samples to clipboard`);
+      Alert.alert('Copied', `${samples.length} samples copied to clipboard.`);
+    } catch (err) {
+      console.log('[Motion] Export error:', err);
+      Alert.alert('Error', 'Failed to export motion data.');
     }
-
-    const json = JSON.stringify(samples, null, 2);
-    const sizeKB = Math.round(json.length / 1024);
-
-    await Share.share({
-      message: json,
-      title: `motion-data-${samples.length}-samples-${sizeKB}KB.json`,
-    });
   }, []);
 
   return (
