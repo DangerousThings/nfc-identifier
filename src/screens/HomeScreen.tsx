@@ -7,6 +7,7 @@ import * as Clipboard from 'expo-clipboard';
 import {useDataConsent} from '../hooks/useDataConsent';
 import {useFixtureCapture} from '../hooks/useFixtureCapture';
 import {sampleCollector} from '../services/motion';
+import {VersionInfo} from '../components/VersionInfo';
 import type {HomeScreenProps} from '../types/navigation';
 
 export function HomeScreen({navigation}: HomeScreenProps) {
@@ -134,6 +135,7 @@ export function HomeScreen({navigation}: HomeScreenProps) {
         <Text variant="bodySmall" style={styles.footerText}>
           dngr.us
         </Text>
+        <VersionInfo />
       </View>
     </View>
   );
