@@ -40,12 +40,22 @@ export enum ChipType {
   DESFIRE_LIGHT = 'DESFIRE_LIGHT',
   DESFIRE_UNKNOWN = 'DESFIRE_UNKNOWN',
 
+  // MIFARE DUOX (HW Major 0xA0 on DESFire family GetVersion)
+  MIFARE_DUOX = 'MIFARE_DUOX',
+
   // MIFARE Plus
   MIFARE_PLUS_S = 'MIFARE_PLUS_S',
   MIFARE_PLUS_X = 'MIFARE_PLUS_X',
   MIFARE_PLUS_SE = 'MIFARE_PLUS_SE',
   MIFARE_PLUS_EV1 = 'MIFARE_PLUS_EV1',
+  MIFARE_PLUS_EV2 = 'MIFARE_PLUS_EV2',
   MIFARE_PLUS = 'MIFARE_PLUS', // Generic
+
+  // NTAG X DNA (HW Major 0xA0 on NTAG DNA family GetVersion)
+  NTAG_X_DNA = 'NTAG_X_DNA',
+
+  // MIFARE 2GO virtual cards (cloud-backed)
+  MIFARE_2GO = 'MIFARE_2GO',
 
   // MIFARE Ultralight family
   ULTRALIGHT = 'ULTRALIGHT',
@@ -102,7 +112,8 @@ export function getChipFamily(type: ChipType): ChipFamily {
   if (type.startsWith('MIFARE_CLASSIC')) {
     return ChipFamily.MIFARE_CLASSIC;
   }
-  if (type.startsWith('DESFIRE')) {
+  if (type.startsWith('DESFIRE') || type === ChipType.MIFARE_DUOX) {
+    // DUOX is the DESFire successor — same family for matcher purposes
     return ChipFamily.MIFARE_DESFIRE;
   }
   if (type.startsWith('MIFARE_PLUS')) {
@@ -219,6 +230,29 @@ export interface Transponder {
 
   /** Platform on which detection was performed */
   detectedOn: 'ios' | 'android';
+
+  /**
+   * Implementation flavor for the chip's interface family.
+   * - `native` — real silicon of the named family (e.g. true MIFARE Classic 1K)
+   * - `smartmx_emulation` — SmartMX or Plus EV1 SL1 emulating the family
+   * - `javacard_emulation` — JavaCard applet emulating the family
+   * - `mifare_2go_virtual` — MIFARE 2GO cloud-backed virtual instance
+   *
+   * Source of truth: GetVersion byte 1 upper nibble (see AN10833 §2.1).
+   * Absent if not yet probed or if the chip family doesn't expose GetVersion.
+   */
+  implementation?:
+    | 'native'
+    | 'smartmx_emulation'
+    | 'javacard_emulation'
+    | 'mifare_2go_virtual';
+
+  /**
+   * Encoded GetVersion byte 1, retained for debugging/display when
+   * `implementation` is non-native. Upper nibble = implementation kind,
+   * lower nibble = product family.
+   */
+  implementationByte?: number;
 }
 
 /**
@@ -267,12 +301,22 @@ export const CHIP_NAMES: Record<ChipType, string> = {
   [ChipType.DESFIRE_LIGHT]: 'MIFARE DESFire Light',
   [ChipType.DESFIRE_UNKNOWN]: 'MIFARE DESFire (Unknown version)',
 
+  // MIFARE DUOX
+  [ChipType.MIFARE_DUOX]: 'MIFARE DUOX',
+
   // MIFARE Plus
   [ChipType.MIFARE_PLUS_S]: 'MIFARE Plus S',
   [ChipType.MIFARE_PLUS_X]: 'MIFARE Plus X',
   [ChipType.MIFARE_PLUS_SE]: 'MIFARE Plus SE',
   [ChipType.MIFARE_PLUS_EV1]: 'MIFARE Plus EV1',
+  [ChipType.MIFARE_PLUS_EV2]: 'MIFARE Plus EV2',
   [ChipType.MIFARE_PLUS]: 'MIFARE Plus',
+
+  // NTAG X DNA
+  [ChipType.NTAG_X_DNA]: 'NTAG X DNA',
+
+  // MIFARE 2GO
+  [ChipType.MIFARE_2GO]: 'MIFARE 2GO (virtual)',
 
   // MIFARE Ultralight
   [ChipType.ULTRALIGHT]: 'MIFARE Ultralight',
@@ -417,6 +461,24 @@ export const CHIP_CLONEABILITY: Record<
     note: 'Cryptographic protection prevents cloning',
   },
 
+  // MIFARE DUOX - NOT cloneable (DESFire successor with stronger crypto)
+  [ChipType.MIFARE_DUOX]: {
+    cloneable: false,
+    note: 'Cryptographic protection prevents cloning',
+  },
+
+  // NTAG X DNA - NOT cloneable (NTAG DNA successor with AES + ECC)
+  [ChipType.NTAG_X_DNA]: {
+    cloneable: false,
+    note: 'AES and ECC authentication prevent cloning',
+  },
+
+  // MIFARE 2GO - NOT cloneable (cloud-backed virtual card)
+  [ChipType.MIFARE_2GO]: {
+    cloneable: false,
+    note: 'Virtual card backed by NXP cloud — never cloneable',
+  },
+
   // MIFARE Plus - NOT cloneable (AES crypto)
   [ChipType.MIFARE_PLUS_S]: {
     cloneable: false,
@@ -431,6 +493,10 @@ export const CHIP_CLONEABILITY: Record<
     note: 'AES cryptographic protection prevents cloning',
   },
   [ChipType.MIFARE_PLUS_EV1]: {
+    cloneable: false,
+    note: 'AES cryptographic protection prevents cloning',
+  },
+  [ChipType.MIFARE_PLUS_EV2]: {
     cloneable: false,
     note: 'AES cryptographic protection prevents cloning',
   },
