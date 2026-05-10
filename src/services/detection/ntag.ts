@@ -4,8 +4,13 @@
  * using GET_VERSION command
  */
 
-import {ChipType, NtagVersionInfo} from '../../types/detection';
+import {ChipType, NtagVersionInfo, Transponder} from '../../types/detection';
 import {NTAG_GET_VERSION, sendType2Command, ntagRead} from '../nfc/commands';
+import {
+  decodeGetVersion,
+  implementationToTransponderField,
+  NXP_VENDOR_ID,
+} from './getversion';
 
 /**
  * GET_VERSION response structure (same for NTAG and Ultralight):
@@ -99,6 +104,10 @@ export interface NtagDetectionResult {
   chipType?: ChipType;
   versionInfo?: NtagVersionInfo;
   memorySize?: number;
+  /** Decoded implementation flavor from GetVersion byte 1 upper nibble */
+  implementation?: Transponder['implementation'];
+  /** Raw GetVersion byte 1, retained for debugging */
+  implementationByte?: number;
   error?: string;
 }
 
@@ -120,30 +129,46 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
       };
     }
 
-    // Parse version info
+    // Layer 3 GetVersion responses have a leading 0x00 status byte; the
+    // 7-byte version structure starts at offset 1.
+    const decoded = decodeGetVersion(response.slice(1, 8));
+
+    // Preserve existing NtagVersionInfo shape for backwards compatibility.
+    // Note: `productType` is the raw byte 1 (family + implementation nibbles
+    // combined) — existing chip-type checks below depend on this, including
+    // their behavior for non-native implementations (which currently fall
+    // through to NTAG_UNKNOWN; later milestones address that).
     const versionInfo: NtagVersionInfo = {
-      vendorId: response[1],
-      productType: response[2],
-      productSubtype: response[3],
-      majorVersion: response[4],
-      minorVersion: response[5],
-      storageSize: response[6],
-      protocolType: response[7],
+      vendorId: decoded.vendorId,
+      productType: decoded.productFamilyByte,
+      productSubtype: decoded.subtype,
+      majorVersion: decoded.hwMajor,
+      minorVersion: decoded.hwMinor,
+      storageSize: decoded.storageSize,
+      protocolType: decoded.protocol,
     };
+
+    const implementation = implementationToTransponderField(
+      decoded.implementation,
+    );
+    const implementationByte = decoded.productFamilyByte;
 
     console.log('[NTAG] Parsed version info:', {
       vendorId: `0x${versionInfo.vendorId.toString(16)}`,
       productType: `0x${versionInfo.productType.toString(16)}`,
       productSubtype: `0x${versionInfo.productSubtype.toString(16)}`,
       storageSize: `0x${versionInfo.storageSize.toString(16)}`,
+      implementation: implementation ?? 'unknown',
     });
 
     // Check if this is an NXP chip
-    if (versionInfo.vendorId !== 0x04) {
+    if (versionInfo.vendorId !== NXP_VENDOR_ID) {
       return {
         success: true,
         chipType: ChipType.NTAG_UNKNOWN,
         versionInfo,
+        implementation,
+        implementationByte,
         error: `Non-NXP vendor ID: 0x${versionInfo.vendorId.toString(16)}`,
       };
     }
@@ -158,6 +183,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
           chipType: storageInfo.type,
           versionInfo,
           memorySize: storageInfo.size,
+          implementation,
+          implementationByte,
         };
       }
 
@@ -166,6 +193,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
         success: true,
         chipType: ChipType.ULTRALIGHT,
         versionInfo,
+        implementation,
+        implementationByte,
         error: `Unknown Ultralight storage size: 0x${versionInfo.storageSize.toString(16)}`,
       };
     }
@@ -187,6 +216,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
           success: true,
           chipType: ChipType.NTAG_UNKNOWN,
           versionInfo,
+          implementation,
+          implementationByte,
           error: `NTAG I2C with unknown storage size: 0x${versionInfo.storageSize.toString(16)}. Expected 0x13 (1K) or 0x15 (2K).`,
         };
       }
@@ -207,6 +238,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
         chipType,
         versionInfo,
         memorySize,
+        implementation,
+        implementationByte,
       };
     }
 
@@ -220,6 +253,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
           chipType: storageInfo.type,
           versionInfo,
           memorySize: storageInfo.size,
+          implementation,
+          implementationByte,
         };
       }
 
@@ -228,6 +263,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
         success: true,
         chipType: ChipType.NTAG_UNKNOWN,
         versionInfo,
+        implementation,
+        implementationByte,
         error: `Unknown NTAG storage size: 0x${versionInfo.storageSize.toString(16)}`,
       };
     }
@@ -237,6 +274,8 @@ export async function detectNtag(): Promise<NtagDetectionResult> {
       success: true,
       chipType: ChipType.NTAG_UNKNOWN,
       versionInfo,
+      implementation,
+      implementationByte,
       error: `Unknown product type: 0x${versionInfo.productType.toString(16)}`,
     };
   } catch (error) {

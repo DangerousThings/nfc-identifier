@@ -4,7 +4,7 @@
  * DESFire Light, and NTAG 424 DNA using GET_VERSION command
  */
 
-import {ChipType, DesfireVersionInfo} from '../../types/detection';
+import {ChipType, DesfireVersionInfo, Transponder} from '../../types/detection';
 import type {NdefRecord} from '../../types/nfc';
 import {
   DESFIRE_GET_VERSION,
@@ -15,6 +15,11 @@ import {
   selectAid,
   KNOWN_AIDS,
 } from '../nfc/commands';
+import {
+  decodeGetVersion,
+  implementationToTransponderField,
+  NXP_VENDOR_ID,
+} from './getversion';
 import {lookupDesfireAid, formatDesfireAidLabel, isHiddenAid} from '../../data/desfireAids';
 import type {DesfireAidInfo} from '../../data/desfireAids';
 
@@ -176,6 +181,10 @@ export interface DesfireDetectionResult {
   chipType?: ChipType;
   versionInfo?: DesfireVersionInfo;
   storageSize?: number;
+  /** Decoded implementation flavor from GetVersion byte 1 upper nibble */
+  implementation?: Transponder['implementation'];
+  /** Raw GetVersion byte 1, retained for debugging */
+  implementationByte?: number;
   error?: string;
 }
 
@@ -218,26 +227,35 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
       };
     }
 
-    // Parse hardware version info
-    // Byte 0: Vendor ID (0x04 = NXP)
-    // Byte 1: Product type (0x01 = DESFire, 0x08 = DESFire Light, 0x21 = NTAG 424 DNA)
-    // Byte 2: Subtype
-    // Byte 3: Major version
-    // Byte 4: Minor version
-    // Byte 5: Storage size
-    // Byte 6: Protocol
-    const hwVendorId = parsed1.data[0];
-    const hwProductType = parsed1.data[1];
-    const hwSubtype = parsed1.data[2];
-    const hwMajor = parsed1.data[3];
-    const hwMinor = parsed1.data[4];
-    const hwStorageSize = parsed1.data[5];
+    // Decode the 7-byte hardware version structure (Layer 4 — no leading
+    // status header to skip).
+    const decoded = decodeGetVersion(parsed1.data);
+
+    // `hwProductType` here is the raw byte 1 (family + implementation
+    // nibbles combined). The chip-type decisions below check this raw value
+    // against constants like 0x01 (DESFIRE), so they currently match only
+    // when the implementation nibble is 0 (native). Non-native cards
+    // (SmartMX-emulated etc.) fall through to DESFIRE_UNKNOWN today; later
+    // milestones will use `decoded.productFamily` directly to handle them.
+    const hwVendorId = decoded.vendorId;
+    const hwProductType = decoded.productFamilyByte;
+    const hwSubtype = decoded.subtype;
+    const hwMajor = decoded.hwMajor;
+    const hwMinor = decoded.hwMinor;
+    const hwStorageSize = decoded.storageSize;
+
+    const implementation = implementationToTransponderField(
+      decoded.implementation,
+    );
+    const implementationByte = decoded.productFamilyByte;
 
     // Verify this is NXP
-    if (hwVendorId !== 0x04) {
+    if (hwVendorId !== NXP_VENDOR_ID) {
       return {
         success: true,
         chipType: ChipType.DESFIRE_UNKNOWN,
+        implementation,
+        implementationByte,
         error: `Non-NXP vendor: 0x${hwVendorId.toString(16)}`,
       };
     }
@@ -354,6 +372,8 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
       chipType,
       versionInfo,
       storageSize,
+      implementation,
+      implementationByte,
     };
   } catch (error) {
     const errorMessage =
