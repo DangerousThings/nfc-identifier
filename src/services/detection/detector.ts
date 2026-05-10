@@ -144,14 +144,40 @@ function createTransponder(
 }
 
 /**
- * Determine implant name based on detected JavaCard applets and Fidesmo flag.
- * - Fidesmo indicates Apex (only Apex has Fidesmo platform)
- * - JavaCard Memory without Fidesmo indicates flexSecure
- * - Payment applets indicate this is a payment card, not an implant
+ * Apex implants report ~84336 bytes total persistent memory via the
+ * JavaCard Memory applet. Fidesmo wearables (rings, fobs, payment cards)
+ * use the same Fidesmo platform but run on different secure-element
+ * silicon with different storage capacity, so this is the discriminator.
+ *
+ * Allow ±5% tolerance for chip-to-chip variation and any small overhead
+ * the applet itself reports.
+ */
+const APEX_PERSISTENT_TOTAL = 84336;
+const APEX_STORAGE_TOLERANCE = 0.05;
+
+function isApexStorageSize(persistentTotal?: number): boolean {
+  if (persistentTotal === undefined) {
+    return false;
+  }
+  const delta = Math.abs(persistentTotal - APEX_PERSISTENT_TOTAL);
+  return delta / APEX_PERSISTENT_TOTAL <= APEX_STORAGE_TOLERANCE;
+}
+
+/**
+ * Determine implant name based on detected JavaCard applets, Fidesmo flag,
+ * and total persistent storage:
+ *
+ * - Payment applets → "Payment Card" (not an implant)
+ * - Fidesmo + Apex storage signature → Apex
+ * - Fidesmo without Apex storage signature → Fidesmo wearable (ring, fob,
+ *   payment card, etc.) — distinguishable from Apex by silicon capacity
+ * - JavaCard Memory without Fidesmo → flexSecure
+ * - Otherwise → undefined (generic JavaCard)
  */
 function getJavacardImplantName(
   installedApplets?: string[],
   isFidesmo?: boolean,
+  storageInfo?: Transponder['storageInfo'],
 ): string | undefined {
   if (!installedApplets || installedApplets.length === 0) {
     return undefined;
@@ -166,8 +192,12 @@ function getJavacardImplantName(
     return network ? `${network} Payment Card` : 'Payment Card';
   }
 
-  if (isFidesmo || installedApplets.includes('Fidesmo')) {
-    return 'Apex';
+  const fidesmoDetected = isFidesmo || installedApplets.includes('Fidesmo');
+  if (fidesmoDetected) {
+    if (isApexStorageSize(storageInfo?.persistentTotal)) {
+      return 'Apex';
+    }
+    return 'Fidesmo Wearable';
   }
 
   if (installedApplets.includes('JavaCard Memory')) {
@@ -535,10 +565,8 @@ async function runIso14443_4Branch(
     onProgress?.('Probing JavaCard applets...');
     const jcResult = await detectJavaCard();
     if (jcResult.success && jcResult.chipType) {
-      const implantName = getJavacardImplantName(
-        jcResult.installedApplets,
-        jcResult.isFidesmo,
-      );
+      // Storage info must be read before naming so we can distinguish Apex
+      // (≈84336 bytes) from Fidesmo wearables on the same applet platform.
       let storageInfo: Transponder['storageInfo'];
       try {
         const mem = await getJavacardStorageInfo();
@@ -548,6 +576,11 @@ async function runIso14443_4Branch(
       } catch {
         // Storage read is best-effort
       }
+      const implantName = getJavacardImplantName(
+        jcResult.installedApplets,
+        jcResult.isFidesmo,
+        storageInfo,
+      );
       return {
         success: true,
         transponder: createTransponder(jcResult.chipType, rawData, {
@@ -580,10 +613,6 @@ async function runIso14443_4Branch(
   onProgress?.('Probing for smartcard applets...');
   const jcFallback = await detectJavaCard();
   if (jcFallback.success && jcFallback.chipType) {
-    const implantName = getJavacardImplantName(
-      jcFallback.installedApplets,
-      jcFallback.isFidesmo,
-    );
     let fallbackStorageInfo: Transponder['storageInfo'];
     try {
       const mem = await getJavacardStorageInfo();
@@ -593,6 +622,11 @@ async function runIso14443_4Branch(
     } catch {
       // Storage read is best-effort
     }
+    const implantName = getJavacardImplantName(
+      jcFallback.installedApplets,
+      jcFallback.isFidesmo,
+      fallbackStorageInfo,
+    );
     return {
       success: true,
       transponder: createTransponder(jcFallback.chipType, rawData, {
