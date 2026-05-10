@@ -14,6 +14,7 @@ import {
 import {DataConsentProvider, useDataConsent} from './src/hooks/useDataConsent';
 import {FixtureCaptureProvider} from './src/hooks/useFixtureCapture';
 import {useMotionMonitor} from './src/hooks/useMotionMonitor';
+import {useReleaseNotesPrompt} from './src/hooks/useReleaseNotesPrompt';
 import type {RootStackParamList} from './src/types/navigation';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -37,6 +38,9 @@ function AppNavigator() {
 
   // Start/stop motion monitoring based on consent
   useMotionMonitor(consentStatus);
+
+  // Show the release-notes dialog once after each new release lands.
+  useReleaseNotesPrompt();
 
   if (consentStatus === 'loading') {
     return null;
