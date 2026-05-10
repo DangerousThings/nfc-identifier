@@ -262,24 +262,23 @@ export function detectSakSwap(
   const notes: string[] = [];
 
   // Check for MIFARE Plus in SL1 mode
-  // Plus in SL1 looks identical to Classic, but historical bytes may differ
+  // Plus in SL1 looks identical to Classic at the SAK level; its historical
+  // bytes carry an AN10833-defined signature (Figure 1, ISO 14443-4 leaves).
   if (
     (sak === SAK_SWAP_INDICATORS.PLUS_SL1_2K ||
       sak === SAK_SWAP_INDICATORS.PLUS_SL1_4K) &&
     historicalBytes
   ) {
-    // MIFARE Plus typically has specific historical bytes patterns
-    if (
-      historicalBytes.includes('C1') ||
-      historicalBytes.includes('80:02')
-    ) {
-      notes.push('Historical bytes suggest MIFARE Plus in SL1 mode');
+    const plusMatch = matchPlusHistoricalSignature(historicalBytes);
+    if (plusMatch) {
+      notes.push(
+        `Plus ${plusMatch.variant} ${plusMatch.memoryK}K in SL${plusMatch.securityLevel} (signature match)`,
+      );
       return {
         hasSakSwap: true,
         swapType: 'mifare_plus_sl1',
-        confidence: 'medium',
-        description:
-          'MIFARE Plus in Security Level 1 (emulating Classic). Can be switched to SL2/SL3 with cryptographic authentication.',
+        confidence: 'high',
+        description: `MIFARE Plus ${plusMatch.variant} ${plusMatch.memoryK}K in Security Level ${plusMatch.securityLevel} (emulating Classic). Can be switched to SL2/SL3 with cryptographic authentication.`,
         notes,
       };
     }
@@ -358,14 +357,16 @@ export function detectSakSwap(
     sak === SAK_SWAP_INDICATORS.PLUS_SL3_2K ||
     sak === SAK_SWAP_INDICATORS.PLUS_SL3_4K
   ) {
-    // SL3 may look like generic ISO-DEP
-    if (historicalBytes?.includes('C1')) {
+    // SL3 may look like generic ISO-DEP. An AN10833 signature match
+    // confirms Plus identity; without one, we don't infer Plus from SAK
+    // alone.
+    const plusMatch = matchPlusHistoricalSignature(historicalBytes);
+    if (plusMatch) {
       return {
         hasSakSwap: true,
         swapType: 'mifare_plus_sl1',
-        confidence: 'medium',
-        description:
-          'MIFARE Plus in Security Level 3 (AES-only mode). May have originated from SL1 configuration.',
+        confidence: 'high',
+        description: `MIFARE Plus ${plusMatch.variant} ${plusMatch.memoryK}K in Security Level 3 (AES-only mode).`,
         notes: ['Cannot fall back to Classic mode once in SL3'],
       };
     }
@@ -394,6 +395,158 @@ export function mightBeMagicCard(sak: number, atqa?: string): boolean {
   }
 
   return false;
+}
+
+// ============================================================================
+// MIFARE Plus historical-byte signatures (AN10833 Figure 1, ISO 14443-4 leaves)
+// ============================================================================
+
+/**
+ * Parse a colon-separated hex string into a byte array.
+ *
+ * Accepts the formats produced by `bytesToHex` (e.g. `"C1:05:2F:2F"`) plus
+ * tolerates other separators and casing. Returns `undefined` on malformed
+ * input — callers should treat that as "no signature match available".
+ */
+function parseHexBytes(hex: string | undefined): number[] | undefined {
+  if (!hex) {
+    return undefined;
+  }
+  const cleaned = hex.replace(/[:\s-]/g, '');
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) {
+    return undefined;
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i < cleaned.length; i += 2) {
+    const byte = parseInt(cleaned.slice(i, i + 2), 16);
+    if (Number.isNaN(byte)) {
+      return undefined;
+    }
+    bytes.push(byte);
+  }
+  return bytes;
+}
+
+/** Variant identifier for MIFARE Plus chips (memory layout / silicon family) */
+export type PlusVariant = 'S' | 'X' | 'SE' | 'EV1';
+
+/**
+ * Result of matching a tag's historical bytes against the AN10833 Plus
+ * signature table.
+ */
+export interface PlusSignatureMatch {
+  chipType: ChipType;
+  variant: PlusVariant;
+  /** Plus security level the card is currently presenting (1, 2, or 3). */
+  securityLevel: 1 | 2 | 3;
+  /** User memory in kilobytes (2 or 4). */
+  memoryK: 2 | 4;
+  /** The matched prefix bytes (for debugging / display). */
+  matchedPrefix: number[];
+}
+
+interface PlusSignatureEntry {
+  prefix: number[];
+  chipType: ChipType;
+  variant: PlusVariant;
+  securityLevel: 1 | 2 | 3;
+  memoryK: 2 | 4;
+}
+
+/**
+ * AN10833 Figure 1 historical-byte prefixes for MIFARE Plus variants.
+ *
+ * Order matters: the matcher returns the first entry whose prefix matches,
+ * so longer / more-specific prefixes should appear before shorter ones.
+ */
+const PLUS_HISTORICAL_SIGNATURES: PlusSignatureEntry[] = [
+  // Plus X — historical bytes "C1 05 2F 2F ..." with variable byte 4
+  {
+    prefix: [0xc1, 0x05, 0x2f, 0x2f, 0x90, 0x35, 0xc7],
+    chipType: ChipType.MIFARE_PLUS_X,
+    variant: 'X',
+    securityLevel: 1,
+    memoryK: 4,
+  },
+  {
+    prefix: [0xc1, 0x05, 0x2f, 0x2f, 0x91, 0x35, 0xc8],
+    chipType: ChipType.MIFARE_PLUS_X,
+    variant: 'X',
+    securityLevel: 1,
+    memoryK: 2,
+  },
+
+  // Plus SE
+  {
+    prefix: [0xc1, 0x05, 0x2f, 0x2f, 0x00, 0x35, 0xc7],
+    chipType: ChipType.MIFARE_PLUS_SE,
+    variant: 'SE',
+    securityLevel: 1,
+    memoryK: 4,
+  },
+  {
+    prefix: [0xc1, 0x05, 0x2f, 0x2f, 0x01, 0x35, 0xc8],
+    chipType: ChipType.MIFARE_PLUS_SE,
+    variant: 'SE',
+    securityLevel: 1,
+    memoryK: 2,
+  },
+  {
+    prefix: [0xc1, 0x05, 0x2f, 0x2f, 0x0b, 0xc8, 0xc8],
+    chipType: ChipType.MIFARE_PLUS_SE,
+    variant: 'SE',
+    securityLevel: 1,
+    memoryK: 2,
+  },
+
+  // Plus EV1 — historical bytes start "C1 05 21 30 ..."
+  {
+    prefix: [0xc1, 0x05, 0x21, 0x30, 0x0f, 0x8f, 0xd1],
+    chipType: ChipType.MIFARE_PLUS_EV1,
+    variant: 'EV1',
+    securityLevel: 1,
+    memoryK: 2,
+  },
+  {
+    prefix: [0xc1, 0x05, 0x21, 0x30, 0x1f, 0x8f, 0xd1],
+    chipType: ChipType.MIFARE_PLUS_EV1,
+    variant: 'EV1',
+    securityLevel: 1,
+    memoryK: 4,
+  },
+];
+
+/**
+ * Match a tag's historical bytes against the Plus signature table.
+ *
+ * Returns the first matching entry, or `undefined` if no signature matches.
+ * This replaces the older loose substring match (`historicalBytes.includes('C1')`)
+ * which produced false positives — `0xC1` appears inside many byte values.
+ */
+export function matchPlusHistoricalSignature(
+  historicalBytes: string | undefined,
+): PlusSignatureMatch | undefined {
+  const bytes = parseHexBytes(historicalBytes);
+  if (!bytes) {
+    return undefined;
+  }
+
+  for (const entry of PLUS_HISTORICAL_SIGNATURES) {
+    if (bytes.length < entry.prefix.length) {
+      continue;
+    }
+    const matches = entry.prefix.every((b, i) => bytes[i] === b);
+    if (matches) {
+      return {
+        chipType: entry.chipType,
+        variant: entry.variant,
+        securityLevel: entry.securityLevel,
+        memoryK: entry.memoryK,
+        matchedPrefix: entry.prefix.slice(),
+      };
+    }
+  }
+  return undefined;
 }
 
 // ============================================================================

@@ -52,6 +52,7 @@ import {
   hasIsoDepCapability,
   detectSakSwap,
   probeClassicGetVersion,
+  matchPlusHistoricalSignature,
 } from './mifare';
 import {
   detectDesfire,
@@ -505,7 +506,22 @@ async function runIso14443_4Branch(
     };
   }
 
-  // 4c: JavaCard via CPLC + AID probing (filtered by historical-byte hint)
+  // 4c: AN10833 Figure 1 — match against the MIFARE Plus historical-byte
+  // signature table. Cards in SL3 (AES-only mode) don't answer DESFire
+  // GetVersion and can be uniquely identified by these prefixes.
+  const plusMatch = matchPlusHistoricalSignature(rawData.historicalBytes);
+  if (plusMatch) {
+    console.log('[Detector] Plus signature match:', plusMatch);
+    return {
+      success: true,
+      transponder: createTransponder(plusMatch.chipType, rawData, {
+        memorySize: plusMatch.memoryK * 1024,
+        confidence: 'high',
+      }),
+    };
+  }
+
+  // 4d: JavaCard via CPLC + AID probing (filtered by historical-byte hint)
   if (mightBeJavaCard(rawData.historicalBytes, rawData.ats)) {
     onProgress?.('Probing JavaCard applets...');
     const jcResult = await detectJavaCard();
@@ -550,7 +566,7 @@ async function runIso14443_4Branch(
     }
   }
 
-  // 4d: Fall back to JavaCard probing without the `mightBeJavaCard` hint —
+  // 4e: Fall back to JavaCard probing without the `mightBeJavaCard` hint —
   // some JavaCards lack distinguishing historical bytes.
   onProgress?.('Probing for smartcard applets...');
   const jcFallback = await detectJavaCard();
@@ -579,7 +595,7 @@ async function runIso14443_4Branch(
     };
   }
 
-  // 4e: Last resort — ATS-based JavaCard match without the gate
+  // 4f: Last resort — ATS-based JavaCard match without the gate
   const jcAtsFallback = detectJavaCardFromAts(
     rawData.historicalBytes,
     rawData.ats,
