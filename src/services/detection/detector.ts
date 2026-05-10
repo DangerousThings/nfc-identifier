@@ -51,6 +51,7 @@ import {
   isMifareClassicSak,
   hasIsoDepCapability,
   detectSakSwap,
+  probeClassicGetVersion,
 } from './mifare';
 import {
   detectDesfire,
@@ -169,6 +170,53 @@ function getJavacardImplantName(
 /** Progress callback type for detection updates */
 export type DetectionProgressCallback = (step: string) => void;
 
+/**
+ * Apply a Layer 3 GetVersion probe result to a Classic-family detection.
+ *
+ * - If the probe found nothing, leave the result alone (real MIFARE Classic).
+ * - If the probe found a Plus EV1 in SL1 mode (byte 1 = 0x82), retype the
+ *   chip as MIFARE_PLUS_EV1 — the Classic memory layout is real but the
+ *   silicon is Plus.
+ * - Otherwise, keep the Classic chip type and stamp the implementation
+ *   field so the matcher / UI can warn about substrate uncertainty.
+ */
+function applyClassicProbe(
+  baseChipType: ChipType,
+  baseMemorySize: number | undefined,
+  probe: Awaited<ReturnType<typeof probeClassicGetVersion>>,
+): {
+  chipType: ChipType;
+  memorySize: number | undefined;
+  implementation?: Transponder['implementation'];
+  implementationByte?: number;
+} {
+  if (!probe.detected) {
+    // Real MIFARE Classic — preserve existing behavior, mark implementation
+    // as native so downstream code can render confident UI.
+    return {
+      chipType: baseChipType,
+      memorySize: baseMemorySize,
+      implementation: 'native',
+    };
+  }
+
+  if (probe.isPlusEv1Sl1) {
+    return {
+      chipType: ChipType.MIFARE_PLUS_EV1,
+      memorySize: baseMemorySize,
+      implementation: probe.implementation,
+      implementationByte: probe.implementationByte,
+    };
+  }
+
+  return {
+    chipType: baseChipType,
+    memorySize: baseMemorySize,
+    implementation: probe.implementation,
+    implementationByte: probe.implementationByte,
+  };
+}
+
 // ============================================================================
 // Branch: MIFARE Classic — tech-type fast path (Android)
 // ============================================================================
@@ -217,11 +265,18 @@ async function runMifareClassicTechBranch(
     }
   }
 
+  // AN10833 §2.1: probe Layer 3 GetVersion to distinguish real silicon from
+  // SmartMX / Plus EV1 SL1 / JavaCard substrates emulating Classic.
+  const probe = await probeClassicGetVersion();
+  const final = applyClassicProbe(chipType, memorySize, probe);
+
   return {
     success: true,
-    transponder: createTransponder(chipType, rawData, {
-      memorySize,
+    transponder: createTransponder(final.chipType, rawData, {
+      memorySize: final.memorySize,
       confidence: 'high',
+      implementation: final.implementation,
+      implementationByte: final.implementationByte,
     }),
   };
 }
@@ -244,11 +299,18 @@ async function runMifareClassicSakBranch(
 ): Promise<DetectionResult | null> {
   const result = detectMifareClassic(sak);
   if (result.success && result.chipType) {
+    // AN10833 §2.1: probe Layer 3 GetVersion to detect SmartMX / Plus EV1
+    // SL1 / JavaCard emulating Classic.
+    const probe = await probeClassicGetVersion();
+    const final = applyClassicProbe(result.chipType, result.memorySize, probe);
+
     return {
       success: true,
-      transponder: createTransponder(result.chipType, rawData, {
-        memorySize: result.memorySize,
+      transponder: createTransponder(final.chipType, rawData, {
+        memorySize: final.memorySize,
         confidence: 'high',
+        implementation: final.implementation,
+        implementationByte: final.implementationByte,
       }),
     };
   }

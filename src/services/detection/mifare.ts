@@ -6,6 +6,16 @@
 
 import {Platform} from 'react-native';
 import {ChipType, CHIP_MEMORY_SIZES} from '../../types/detection';
+import {NTAG_GET_VERSION, sendType2Command} from '../nfc/commands';
+import {
+  decodeGetVersion,
+  GetVersionDecoded,
+  ImplementationKind,
+  implementationToTransponderField,
+  NXP_VENDOR_ID,
+  ProductFamily,
+} from './getversion';
+import type {Transponder} from '../../types/detection';
 
 /**
  * SAK (Select Acknowledge) values for MIFARE chips
@@ -384,4 +394,118 @@ export function mightBeMagicCard(sak: number, atqa?: string): boolean {
   }
 
   return false;
+}
+
+// ============================================================================
+// Layer 3 GetVersion probe for MIFARE Classic-typed cards (AN10833 §2.1)
+// ============================================================================
+
+/**
+ * Outcome of probing a Classic-typed card with Layer 3 GetVersion (cmd 0x60).
+ *
+ * - Real MIFARE Classic NAKs the command (caught as a transceive error).
+ * - SmartMX / Plus EV1 in SL1 emulating Classic answer with a 7-byte
+ *   GetVersion structure whose byte 1 upper nibble = 0x8.
+ * - JavaCard applets emulating Classic answer with byte 1 upper nibble = 0x9.
+ *
+ * The probe is a no-op for callers when `detected` is false — they continue
+ * with their existing SAK-based Classic identification.
+ */
+export interface ClassicGetVersionProbeResult {
+  /** True when the card answered with a parseable GetVersion response. */
+  detected: boolean;
+  /** Decoded GetVersion fields, if `detected`. */
+  decoded?: GetVersionDecoded;
+  /** Mapped Transponder.implementation field, if `detected`. */
+  implementation?: Transponder['implementation'];
+  /** Raw GetVersion byte 1, retained for debugging. */
+  implementationByte?: number;
+  /**
+   * True when byte 1 specifically equals 0x82 — MIFARE Plus EV1 operating
+   * in Security Level 1 mode (Plus family + SmartMX-style emulation upper
+   * nibble). The card's chip type should be reported as MIFARE_PLUS_EV1
+   * rather than MIFARE_CLASSIC_*.
+   */
+  isPlusEv1Sl1?: boolean;
+}
+
+/**
+ * Probe a card whose SAK identifies it as MIFARE Classic with the Layer 3
+ * GetVersion command (cmd 0x60).
+ *
+ * Real MIFARE Classic chips do not implement GetVersion and respond with a
+ * NAK (which surfaces as a transceive exception in our nfc layer). Cards
+ * whose Classic memory layout is provided by a SmartMX, Plus EV1 SL1, or
+ * JavaCard substrate answer with the standard 7-byte GetVersion structure
+ * carrying their substrate identity in byte 1.
+ *
+ * **Platform notes:**
+ * - On Android, this works for any tag that exposes the `MifareClassic` or
+ *   `NfcA` tech.
+ * - On iOS, `sendMifareCommandIOS` may refuse to send arbitrary commands to
+ *   a tag CoreNFC has typed as MIFARE Classic. In that case the probe
+ *   throws and we treat the card as real Classic — same outcome as a NAK.
+ */
+export async function probeClassicGetVersion(): Promise<ClassicGetVersionProbeResult> {
+  try {
+    console.log('[MIFARE] Probing Layer 3 GetVersion on Classic-typed card');
+    const response = await sendType2Command(NTAG_GET_VERSION);
+
+    if (response.length < 8) {
+      console.log(
+        '[MIFARE] GetVersion probe: response too short',
+        response.length,
+      );
+      return {detected: false};
+    }
+
+    // Layer 3 GetVersion responses lead with a 0x00 status byte; the 7-byte
+    // version structure starts at offset 1.
+    const decoded = decodeGetVersion(response.slice(1, 8));
+
+    if (decoded.vendorId !== NXP_VENDOR_ID) {
+      console.log(
+        '[MIFARE] GetVersion probe: non-NXP vendor',
+        `0x${decoded.vendorId.toString(16)}`,
+      );
+      return {detected: false};
+    }
+
+    const implementation = implementationToTransponderField(
+      decoded.implementation,
+    );
+
+    // Native (upper nibble 0) on a Classic-SAK card would be unusual — real
+    // MIFARE Classic NAKs the command. If we somehow get here, treat it as
+    // an inconclusive probe rather than misreporting.
+    if (decoded.implementation === ImplementationKind.NATIVE) {
+      console.log(
+        '[MIFARE] GetVersion probe: unexpected native response on Classic SAK',
+      );
+      return {detected: false};
+    }
+
+    const isPlusEv1Sl1 = decoded.productFamilyByte === 0x82;
+
+    console.log('[MIFARE] GetVersion probe: detected', {
+      byte1: `0x${decoded.productFamilyByte.toString(16)}`,
+      family: ProductFamily[decoded.productFamily],
+      implementation: ImplementationKind[decoded.implementation],
+      isPlusEv1Sl1,
+    });
+
+    return {
+      detected: true,
+      decoded,
+      implementation,
+      implementationByte: decoded.productFamilyByte,
+      isPlusEv1Sl1,
+    };
+  } catch (error) {
+    console.log(
+      '[MIFARE] GetVersion probe: NAK or transceive error (expected for real Classic):',
+      error instanceof Error ? error.message : error,
+    );
+    return {detected: false};
+  }
 }
