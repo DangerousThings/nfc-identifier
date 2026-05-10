@@ -1,6 +1,37 @@
 /**
  * Detection Orchestrator
- * Main entry point for chip detection using waterfall approach
+ *
+ * Restructured per AN10833 rev 3.9 Figure 1: dispatches incoming tags into
+ * a small set of named branches, each of which mirrors a leaf of the spec's
+ * decision tree. The orchestrator itself contains *no* chip-specific decode
+ * logic — every chip-family identification lives in a branch handler or the
+ * sub-detector module it calls into.
+ *
+ * Branch summary (in dispatch order — see `detectChip` below):
+ *
+ * 1. `runMifareClassicTechBranch`   — Android-only fast path: tag exposes the
+ *                                     `MifareClassic` tech without `IsoDep`.
+ *                                     Maps to AN10833 Fig 1 leaf "Classic 1K/4K/Mini".
+ *
+ * 2. `runMifareClassicSakBranch`    — SAK-based MIFARE Classic detection (iOS
+ *                                     and Android fallback). Same Fig 1 leaf
+ *                                     but reached via SAK bit 3 = 1 / bit 5 = 0.
+ *
+ * 3. `runType2Branch`               — Type 2 family (NTAG / Ultralight) via
+ *                                     Layer 3 GetVersion (cmd 0x60). Reached
+ *                                     when SAK bit 5 = 0 and bit 3 = 0.
+ *
+ * 4. `runIso14443_4Branch`          — ISO 14443-4 / T=CL family (DESFire,
+ *                                     Plus, JavaCard, NTAG DNA). Reached when
+ *                                     SAK bit 5 = 1 (ISO-DEP capability).
+ *
+ * 5. `runIso15693Branch`            — ISO 15693 / NFC-V (SLIX, NTAG 5).
+ *
+ * 6. `runIso14443BBranch`           — ISO 14443-B (rare in our domain).
+ *
+ * Each branch returns a fully-constructed `DetectionResult`. The dispatcher
+ * picks exactly one branch based on tech types and SAK; falls back to
+ * `UNKNOWN` only if no branch matches.
  */
 
 import {Platform} from 'react-native';
@@ -21,14 +52,28 @@ import {
   hasIsoDepCapability,
   detectSakSwap,
 } from './mifare';
-import {detectDesfire, detectDesfireFromAts, detectSpark2Implant, detectSpark2FromNdef, enumerateDesfireApps, formatDesfireApps} from './desfire';
+import {
+  detectDesfire,
+  detectDesfireFromAts,
+  detectSpark2Implant,
+  detectSpark2FromNdef,
+  enumerateDesfireApps,
+  formatDesfireApps,
+} from './desfire';
 import {detectIso15693, isIso15693, detectSparkImplant} from './iso15693';
 import {detectNtag5SensorImplant} from './ntag5sensor';
-import {detectJavaCard, mightBeJavaCard, detectJavaCardFromAts, getJavacardStorageInfo} from './javacard';
+import {
+  detectJavaCard,
+  mightBeJavaCard,
+  detectJavaCardFromAts,
+  getJavacardStorageInfo,
+} from './javacard';
 
-/**
- * Create a Transponder object from detection results
- */
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Build a Transponder from detection results, applying defaults. */
 function createTransponder(
   type: ChipType,
   rawData: RawTagData,
@@ -42,6 +87,8 @@ function createTransponder(
     temperature2?: Transponder['temperature2'];
     installedApplets?: string[];
     storageInfo?: Transponder['storageInfo'];
+    implementation?: Transponder['implementation'];
+    implementationByte?: number;
   } = {},
 ): Transponder {
   const cloneInfo = CHIP_CLONEABILITY[type];
@@ -80,11 +127,13 @@ function createTransponder(
     storageInfo: options.storageInfo,
     confidence: options.confidence ?? 'medium',
     detectedOn: Platform.OS as 'ios' | 'android',
+    implementation: options.implementation,
+    implementationByte: options.implementationByte,
   };
 }
 
 /**
- * Determine implant name based on detected JavaCard applets and Fidesmo flag
+ * Determine implant name based on detected JavaCard applets and Fidesmo flag.
  * - Fidesmo indicates Apex (only Apex has Fidesmo platform)
  * - JavaCard Memory without Fidesmo indicates flexSecure
  * - Payment applets indicate this is a payment card, not an implant
@@ -97,20 +146,19 @@ function getJavacardImplantName(
     return undefined;
   }
 
-  // Payment card detection - not an implant
   if (installedApplets.includes('Payment (PPSE)')) {
     const network = installedApplets.find(a =>
-      ['Visa', 'Mastercard', 'American Express', 'Discover', 'Maestro'].includes(a),
+      ['Visa', 'Mastercard', 'American Express', 'Discover', 'Maestro'].includes(
+        a,
+      ),
     );
     return network ? `${network} Payment Card` : 'Payment Card';
   }
 
-  // Fidesmo detected (via AID probe or memory fingerprint) — definitely Apex
   if (isFidesmo || installedApplets.includes('Fidesmo')) {
     return 'Apex';
   }
 
-  // JavaCard Memory present without Fidesmo — flexSecure
   if (installedApplets.includes('JavaCard Memory')) {
     return 'flexSecure';
   }
@@ -121,14 +169,494 @@ function getJavacardImplantName(
 /** Progress callback type for detection updates */
 export type DetectionProgressCallback = (step: string) => void;
 
+// ============================================================================
+// Branch: MIFARE Classic — tech-type fast path (Android)
+// ============================================================================
+
 /**
- * Detect chip type using waterfall approach
+ * MIFARE Classic family detection via the `MifareClassic` Android tech type.
+ * Most reliable method on Android because the OS has already typed the tag.
  *
- * Detection order:
- * 1. Check for MIFARE Classic (SAK-based, quick)
- * 2. Check for NTAG (GET_VERSION command)
- * 3. Check for ISO-DEP capable chips (Phase 4: DESFire, Plus, JavaCard)
- * 4. Fall back to generic type based on technology
+ * Reached from dispatcher when: `MifareClassic` tech present and `IsoDep` is
+ * absent (i.e. not a multi-implementation card like SAK 0x28).
+ */
+async function runMifareClassicTechBranch(
+  rawData: RawTagData,
+): Promise<DetectionResult> {
+  const {sak} = rawData;
+
+  // Determine 1K vs 4K vs Mini.
+  // Priority: mifareClassic.size (most reliable on Android) > SAK > UID length
+  let chipType = ChipType.MIFARE_CLASSIC_1K;
+  let memorySize = 1024;
+
+  if (rawData.mifareClassic?.size) {
+    const size = rawData.mifareClassic.size;
+    console.log('[Detector] Using mifareClassic.size:', size);
+    if (size >= 4096) {
+      chipType = ChipType.MIFARE_CLASSIC_4K;
+      memorySize = 4096;
+    } else if (size >= 1024) {
+      chipType = ChipType.MIFARE_CLASSIC_1K;
+      memorySize = 1024;
+    } else if (size >= 320) {
+      chipType = ChipType.MIFARE_CLASSIC_MINI;
+      memorySize = 320;
+    }
+  } else if (sak === 0x18 || sak === 0x38 || sak === 0x98) {
+    chipType = ChipType.MIFARE_CLASSIC_4K;
+    memorySize = 4096;
+  } else if (sak === 0x09) {
+    chipType = ChipType.MIFARE_CLASSIC_MINI;
+    memorySize = 320;
+  } else if (rawData.uid && rawData.uid.replace(/[:\s-]/g, '').length === 14) {
+    // 14 hex chars = 7-byte UID — often 4K when SAK is missing
+    if (sak === undefined) {
+      chipType = ChipType.MIFARE_CLASSIC_4K;
+      memorySize = 4096;
+    }
+  }
+
+  return {
+    success: true,
+    transponder: createTransponder(chipType, rawData, {
+      memorySize,
+      confidence: 'high',
+    }),
+  };
+}
+
+// ============================================================================
+// Branch: MIFARE Classic — SAK-based (iOS / Android fallback)
+// ============================================================================
+
+/**
+ * MIFARE Classic family detection via SAK only. Used when the platform did
+ * not surface a `MifareClassic` tech type (always the case on iOS) but the
+ * SAK matches a known Classic value.
+ *
+ * Reached from dispatcher when: SAK indicates Classic and `IsoDep` is absent.
+ * This corresponds to AN10833 Fig 1 path "SAK bit 5 = 0, bit 3 = 1".
+ */
+async function runMifareClassicSakBranch(
+  rawData: RawTagData,
+  sak: number,
+): Promise<DetectionResult | null> {
+  const result = detectMifareClassic(sak);
+  if (result.success && result.chipType) {
+    return {
+      success: true,
+      transponder: createTransponder(result.chipType, rawData, {
+        memorySize: result.memorySize,
+        confidence: 'high',
+      }),
+    };
+  }
+  return null;
+}
+
+// ============================================================================
+// Branch: Type 2 (NTAG / Ultralight) — Layer 3 GetVersion
+// ============================================================================
+
+/**
+ * Type 2 / NTAG / Ultralight detection via Layer 3 GetVersion (cmd 0x60).
+ * Falls back to `MifareUltralight` tech type or generic NTAG_UNKNOWN if
+ * GetVersion fails or returns NAK.
+ *
+ * Reached from dispatcher when: `mightBeNtag(sak, techTypes)` is true
+ * (SAK absent or 0x00 with NfcA, no IsoDep). AN10833 Fig 1 leaf "Type 2".
+ */
+async function runType2Branch(
+  rawData: RawTagData,
+  onProgress?: DetectionProgressCallback,
+): Promise<DetectionResult> {
+  const {sak, techTypes} = rawData;
+
+  onProgress?.('Reading NTAG version...');
+  console.log('[Detector] Attempting NTAG detection...');
+  const ntagResult = await detectNtag();
+  console.log('[Detector] NTAG detection result:', {
+    success: ntagResult.success,
+    chipType: ntagResult.chipType,
+    error: ntagResult.error,
+  });
+
+  if (ntagResult.success && ntagResult.chipType) {
+    let implantName: string | undefined;
+    try {
+      onProgress?.('Checking for implant signature...');
+      const implantResult = await detectImplantNameInMemory(ntagResult.chipType);
+      if (implantResult.found && implantResult.name) {
+        implantName = implantResult.name;
+        console.log('[Detector] Found implant name in memory:', implantName);
+      }
+    } catch (e) {
+      console.warn('[Detector] Implant name detection failed:', e);
+    }
+
+    return {
+      success: true,
+      transponder: createTransponder(ntagResult.chipType, rawData, {
+        memorySize: ntagResult.memorySize,
+        versionInfo: ntagResult.versionInfo,
+        confidence:
+          ntagResult.chipType === ChipType.NTAG_UNKNOWN ? 'medium' : 'high',
+        implantName,
+        implementation: ntagResult.implementation,
+        implementationByte: ntagResult.implementationByte,
+      }),
+    };
+  }
+
+  // GET_VERSION failed → check if it's an original Ultralight (no GET_VERSION
+  // support; only EV1+ implements it).
+  if ((sak === 0x00 || sak === undefined) && techTypes.some(t => t.includes('NfcA'))) {
+    const hasMifareUltralightTech = techTypes.some(t =>
+      t.includes('MifareUltralight'),
+    );
+
+    if (hasMifareUltralightTech) {
+      console.log(
+        '[Detector] MifareUltralight tech detected, identifying as original Ultralight',
+      );
+      return {
+        success: true,
+        transponder: createTransponder(ChipType.ULTRALIGHT, rawData, {
+          memorySize: 48,
+          confidence: 'medium',
+        }),
+      };
+    }
+
+    console.log('[Detector] NTAG detection failed, falling back to NTAG_UNKNOWN');
+    return {
+      success: true,
+      transponder: createTransponder(ChipType.NTAG_UNKNOWN, rawData, {
+        confidence: 'low',
+      }),
+    };
+  }
+
+  // Should be unreachable given the dispatcher's `mightBeNtag` gate, but bail
+  // safely.
+  return {
+    success: true,
+    transponder: createTransponder(ChipType.NTAG_UNKNOWN, rawData, {
+      confidence: 'low',
+    }),
+  };
+}
+
+// ============================================================================
+// Branch: ISO 14443-4 (DESFire, Plus, JavaCard, NTAG DNA)
+// ============================================================================
+
+/**
+ * ISO 14443-4 / T=CL detection. Tries DESFire-style GetVersion first
+ * (DESFire EV1/2/3, DESFire Light, NTAG 424 DNA), then ATS-based DESFire
+ * detection, then JavaCard CPLC + AID probing, with multiple fallbacks.
+ *
+ * Reached from dispatcher when: SAK has bit 5 set (ISO-DEP capability) or
+ * `IsoDep` tech is present. AN10833 Fig 1 leaf "ISO 14443-4".
+ */
+async function runIso14443_4Branch(
+  rawData: RawTagData,
+  onProgress?: DetectionProgressCallback,
+): Promise<DetectionResult> {
+  // 4a: DESFire-style GetVersion (covers DESFire and NTAG 424 DNA)
+  onProgress?.('Reading DESFire version...');
+  const desfireResult = await detectDesfire();
+  if (desfireResult.success && desfireResult.chipType) {
+    let desfireAppLabels: string[] | undefined;
+    try {
+      onProgress?.('Enumerating DESFire applications...');
+      const apps = await enumerateDesfireApps();
+      if (apps.length > 0) {
+        desfireAppLabels = formatDesfireApps(apps);
+      }
+    } catch (e) {
+      console.warn('[Detector] DESFire app enumeration failed:', e);
+    }
+
+    let implantName: string | undefined;
+    const isNtagDna =
+      desfireResult.chipType === ChipType.NTAG424_DNA ||
+      desfireResult.chipType === ChipType.NTAG424_DNA_TT ||
+      desfireResult.chipType === ChipType.NTAG413_DNA;
+
+    if (isNtagDna) {
+      // First, try cached NDEF (works even after GetVersion put the tag in
+      // native mode).
+      const cachedNdefResult = detectSpark2FromNdef(rawData.ndefRecords);
+      if (cachedNdefResult.found && cachedNdefResult.name) {
+        implantName = cachedNdefResult.name;
+        console.log(
+          '[Detector] Found Spark 2 implant from cached NDEF:',
+          implantName,
+        );
+      } else {
+        try {
+          onProgress?.('Reading NDEF for Spark 2...');
+          const spark2Result = await detectSpark2Implant();
+          if (spark2Result.found && spark2Result.name) {
+            implantName = spark2Result.name;
+            console.log('[Detector] Found Spark 2 implant via APDU:', implantName);
+          }
+        } catch (e) {
+          console.warn('[Detector] Spark 2 APDU detection failed:', e);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      transponder: createTransponder(desfireResult.chipType, rawData, {
+        memorySize: desfireResult.storageSize,
+        versionInfo: desfireResult.versionInfo,
+        confidence:
+          desfireResult.chipType === ChipType.DESFIRE_UNKNOWN
+            ? 'medium'
+            : 'high',
+        implantName,
+        installedApplets: desfireAppLabels,
+        implementation: desfireResult.implementation,
+        implementationByte: desfireResult.implementationByte,
+      }),
+    };
+  }
+
+  // 4b: GetVersion failed → ATS-based DESFire detection
+  const desfireAtsResult = detectDesfireFromAts(
+    rawData.historicalBytes,
+    rawData.ats,
+    rawData.sak,
+    rawData.atqa,
+  );
+  if (desfireAtsResult.success && desfireAtsResult.chipType) {
+    return {
+      success: true,
+      transponder: createTransponder(desfireAtsResult.chipType, rawData, {
+        memorySize: desfireAtsResult.storageSize,
+        confidence: 'medium',
+      }),
+    };
+  }
+
+  // 4c: JavaCard via CPLC + AID probing (filtered by historical-byte hint)
+  if (mightBeJavaCard(rawData.historicalBytes, rawData.ats)) {
+    onProgress?.('Probing JavaCard applets...');
+    const jcResult = await detectJavaCard();
+    if (jcResult.success && jcResult.chipType) {
+      const implantName = getJavacardImplantName(
+        jcResult.installedApplets,
+        jcResult.isFidesmo,
+      );
+      let storageInfo: Transponder['storageInfo'];
+      try {
+        const mem = await getJavacardStorageInfo();
+        if (mem) {
+          storageInfo = mem;
+        }
+      } catch {
+        // Storage read is best-effort
+      }
+      return {
+        success: true,
+        transponder: createTransponder(jcResult.chipType, rawData, {
+          confidence:
+            jcResult.chipType === ChipType.JCOP4 ? 'high' : 'medium',
+          implantName,
+          installedApplets: jcResult.installedApplets,
+          storageInfo,
+        }),
+      };
+    }
+
+    // CPLC failed → ATS-based JavaCard detection
+    const jcAtsResult = detectJavaCardFromAts(
+      rawData.historicalBytes,
+      rawData.ats,
+    );
+    if (jcAtsResult.success && jcAtsResult.chipType) {
+      return {
+        success: true,
+        transponder: createTransponder(jcAtsResult.chipType, rawData, {
+          confidence: 'medium',
+        }),
+      };
+    }
+  }
+
+  // 4d: Fall back to JavaCard probing without the `mightBeJavaCard` hint —
+  // some JavaCards lack distinguishing historical bytes.
+  onProgress?.('Probing for smartcard applets...');
+  const jcFallback = await detectJavaCard();
+  if (jcFallback.success && jcFallback.chipType) {
+    const implantName = getJavacardImplantName(
+      jcFallback.installedApplets,
+      jcFallback.isFidesmo,
+    );
+    let fallbackStorageInfo: Transponder['storageInfo'];
+    try {
+      const mem = await getJavacardStorageInfo();
+      if (mem) {
+        fallbackStorageInfo = mem;
+      }
+    } catch {
+      // Storage read is best-effort
+    }
+    return {
+      success: true,
+      transponder: createTransponder(jcFallback.chipType, rawData, {
+        confidence: 'medium',
+        implantName,
+        installedApplets: jcFallback.installedApplets,
+        storageInfo: fallbackStorageInfo,
+      }),
+    };
+  }
+
+  // 4e: Last resort — ATS-based JavaCard match without the gate
+  const jcAtsFallback = detectJavaCardFromAts(
+    rawData.historicalBytes,
+    rawData.ats,
+  );
+  if (jcAtsFallback.success && jcAtsFallback.chipType) {
+    return {
+      success: true,
+      transponder: createTransponder(jcAtsFallback.chipType, rawData, {
+        confidence: 'low',
+      }),
+    };
+  }
+
+  // ISO-DEP but unidentifiable → generic ISO 14443-A
+  return {
+    success: true,
+    transponder: createTransponder(ChipType.ISO14443A_UNKNOWN, rawData, {
+      confidence: 'low',
+    }),
+  };
+}
+
+// ============================================================================
+// Branch: ISO 15693 / NFC-V
+// ============================================================================
+
+/**
+ * ISO 15693 / NFC-V detection. Identifies SLIX family, NTAG 5, and runs
+ * sensor-implant probes for NTAG 5 Boost/Link variants.
+ */
+async function runIso15693Branch(
+  rawData: RawTagData,
+  onProgress?: DetectionProgressCallback,
+): Promise<DetectionResult> {
+  onProgress?.('Reading ISO 15693 system info...');
+  const iso15693Result = await detectIso15693();
+  if (iso15693Result.success && iso15693Result.chipType) {
+    const knownTypes = [
+      ChipType.SLIX,
+      ChipType.SLIX2,
+      ChipType.SLIX_S,
+      ChipType.SLIX_L,
+      ChipType.NTAG5_LINK,
+      ChipType.NTAG5_BOOST,
+      ChipType.NTAG5_SWITCH,
+    ];
+    const confidence: Transponder['confidence'] =
+      iso15693Result.chipType === ChipType.ISO15693_UNKNOWN
+        ? 'low'
+        : knownTypes.includes(iso15693Result.chipType)
+          ? 'high'
+          : 'medium';
+
+    let implantName: string | undefined;
+    let sensorTemperature: Transponder['temperature'];
+    let sensorTemperature2: Transponder['temperature2'];
+
+    const isNtag5WithI2c =
+      iso15693Result.chipType === ChipType.NTAG5_BOOST ||
+      iso15693Result.chipType === ChipType.NTAG5_LINK;
+
+    if (isNtag5WithI2c && iso15693Result.uid) {
+      try {
+        onProgress?.('Probing I2C sensors...');
+        const sensorResult = await detectNtag5SensorImplant(
+          iso15693Result.uid,
+          iso15693Result.afi,
+          iso15693Result.dsfid,
+        );
+        if (sensorResult.detected && sensorResult.implantName) {
+          implantName = sensorResult.implantName;
+          sensorTemperature = sensorResult.temperature;
+          sensorTemperature2 = sensorResult.temperature2;
+          console.log(
+            '[Detector] Found sensor implant:',
+            implantName,
+            `(${sensorResult.deviceType}, ${sensorResult.sensorType})`,
+          );
+        }
+      } catch (e) {
+        console.warn('[Detector] NTAG5 sensor detection failed:', e);
+      }
+    }
+
+    if (!implantName) {
+      try {
+        onProgress?.('Reading NDEF for Spark 1...');
+        const sparkResult = await detectSparkImplant(iso15693Result.chipType);
+        if (sparkResult.found && sparkResult.name) {
+          implantName = sparkResult.name;
+          console.log('[Detector] Found Spark implant:', implantName);
+        }
+      } catch (e) {
+        console.warn('[Detector] Spark detection failed:', e);
+      }
+    }
+
+    return {
+      success: true,
+      transponder: createTransponder(iso15693Result.chipType, rawData, {
+        confidence,
+        implantName,
+        temperature: sensorTemperature,
+        temperature2: sensorTemperature2,
+      }),
+    };
+  }
+
+  return {
+    success: true,
+    transponder: createTransponder(ChipType.ISO15693_UNKNOWN, rawData, {
+      confidence: 'low',
+    }),
+  };
+}
+
+// ============================================================================
+// Branch: ISO 14443-B
+// ============================================================================
+
+function runIso14443BBranch(rawData: RawTagData): DetectionResult {
+  return {
+    success: true,
+    transponder: createTransponder(ChipType.ISO14443B_UNKNOWN, rawData, {
+      confidence: 'low',
+    }),
+  };
+}
+
+// ============================================================================
+// Dispatcher
+// ============================================================================
+
+/**
+ * Detect chip type by dispatching into one of six branches based on tag
+ * tech types and SAK structure (AN10833 Fig 1).
+ *
+ * Branch precedence is preserved from the pre-rework waterfall to keep
+ * behavior bit-identical until later milestones add new probes.
  */
 export async function detectChip(
   rawData: RawTagData,
@@ -136,455 +664,55 @@ export async function detectChip(
 ): Promise<DetectionResult> {
   try {
     const {sak, techTypes} = rawData;
+    const hasMifareClassicTech = techTypes.some(t => t.includes('MifareClassic'));
+    const hasIsoDepTech = techTypes.some(t => t.includes('IsoDep'));
 
     console.log('[Detector] Starting detection with:', {
       uid: rawData.uid,
       sak: sak !== undefined ? `0x${sak.toString(16)}` : 'undefined',
       techTypes,
-      hasIsoDep: techTypes.some(t => t.includes('IsoDep')),
+      hasIsoDep: hasIsoDepTech,
       hasNfcA: techTypes.some(t => t.includes('NfcA')),
     });
 
-    // ========================================================================
-    // Step 1: Check for MIFARE Classic
-    // Use tech type detection first (most reliable on Android), then SAK
-    // ========================================================================
+    // 1. MIFARE Classic (Android tech type, fastest path)
     onProgress?.('Checking MIFARE Classic...');
-
-    const hasMifareClassicTech = techTypes.some(t =>
-      t.includes('MifareClassic'),
-    );
-    const hasIsoDepTech = techTypes.some(t => t.includes('IsoDep'));
-
-    // If we have MifareClassic tech type and NO IsoDep, it's definitely Classic
     if (hasMifareClassicTech && !hasIsoDepTech) {
-      // Determine 1K vs 4K vs Mini
-      // Priority: mifareClassic.size (most reliable on Android) > SAK > UID length
-      let chipType = ChipType.MIFARE_CLASSIC_1K; // Default to 1K
-      let memorySize = 1024;
-
-      // First, check mifareClassic object from Android (most reliable)
-      if (rawData.mifareClassic?.size) {
-        const size = rawData.mifareClassic.size;
-        console.log('[Detector] Using mifareClassic.size:', size);
-        if (size >= 4096) {
-          chipType = ChipType.MIFARE_CLASSIC_4K;
-          memorySize = 4096;
-        } else if (size >= 1024) {
-          chipType = ChipType.MIFARE_CLASSIC_1K;
-          memorySize = 1024;
-        } else if (size >= 320) {
-          chipType = ChipType.MIFARE_CLASSIC_MINI;
-          memorySize = 320;
-        }
-      }
-      // Fallback to SAK-based detection
-      // SAK 0x18, 0x38, or 0x98 indicates 4K
-      else if (sak === 0x18 || sak === 0x38 || sak === 0x98) {
-        chipType = ChipType.MIFARE_CLASSIC_4K;
-        memorySize = 4096;
-      }
-      // SAK 0x09 indicates Mini
-      else if (sak === 0x09) {
-        chipType = ChipType.MIFARE_CLASSIC_MINI;
-        memorySize = 320;
-      }
-      // 7-byte UID often indicates 4K (but not always)
-      else if (rawData.uid && rawData.uid.replace(/[:\s-]/g, '').length === 14) {
-        // 14 hex chars = 7 bytes - could be 4K, but use SAK if available
-        if (sak === undefined) {
-          chipType = ChipType.MIFARE_CLASSIC_4K;
-          memorySize = 4096;
-        }
-      }
-
-      return {
-        success: true,
-        transponder: createTransponder(chipType, rawData, {
-          memorySize,
-          confidence: 'high',
-        }),
-      };
+      return await runMifareClassicTechBranch(rawData);
     }
 
-    // SAK-based MIFARE Classic detection (fallback, includes iOS)
+    // 2. MIFARE Classic (SAK-based fallback — covers iOS)
+    //    AN10833 Fig 1: SAK bit 5 = 0, bit 3 = 1
     if (sak !== undefined && isMifareClassicSak(sak) && !hasIsoDepTech) {
-      const result = detectMifareClassic(sak);
-      if (result.success && result.chipType) {
-        return {
-          success: true,
-          transponder: createTransponder(result.chipType, rawData, {
-            memorySize: result.memorySize,
-            confidence: 'high',
-          }),
-        };
+      const classicResult = await runMifareClassicSakBranch(rawData, sak);
+      if (classicResult) {
+        return classicResult;
       }
     }
 
-    // ========================================================================
-    // Step 2: Check for NTAG (Type 2 tags with GET_VERSION)
-    // ========================================================================
-    const couldBeNtag = mightBeNtag(sak, techTypes);
-    console.log('[Detector] mightBeNtag result:', couldBeNtag);
-
-    if (couldBeNtag) {
-      onProgress?.('Reading NTAG version...');
-      console.log('[Detector] Attempting NTAG detection...');
-      const ntagResult = await detectNtag();
-      console.log('[Detector] NTAG detection result:', {
-        success: ntagResult.success,
-        chipType: ntagResult.chipType,
-        error: ntagResult.error,
-      });
-
-      if (ntagResult.success && ntagResult.chipType) {
-        // Try to detect implant name in last memory pages
-        let implantName: string | undefined;
-        try {
-          onProgress?.('Checking for implant signature...');
-          const implantResult = await detectImplantNameInMemory(ntagResult.chipType);
-          if (implantResult.found && implantResult.name) {
-            implantName = implantResult.name;
-            console.log('[Detector] Found implant name in memory:', implantName);
-          }
-        } catch (e) {
-          console.warn('[Detector] Implant name detection failed:', e);
-        }
-
-        return {
-          success: true,
-          transponder: createTransponder(ntagResult.chipType, rawData, {
-            memorySize: ntagResult.memorySize,
-            versionInfo: ntagResult.versionInfo,
-            confidence:
-              ntagResult.chipType === ChipType.NTAG_UNKNOWN ? 'medium' : 'high',
-            implantName,
-          }),
-        };
-      }
-      // If GET_VERSION failed, check for MIFARE Ultralight
-      // Original Ultralight doesn't support GET_VERSION (only EV1+ does)
-      // SAK can be 0x00 or undefined for Ultralight
-      if ((sak === 0x00 || sak === undefined) && techTypes.some(t => t.includes('NfcA'))) {
-        // Check for MifareUltralight tech type (Android provides this)
-        const hasMifareUltralightTech = techTypes.some(t =>
-          t.includes('MifareUltralight'),
-        );
-
-        if (hasMifareUltralightTech) {
-          console.log('[Detector] MifareUltralight tech detected, identifying as original Ultralight');
-          return {
-            success: true,
-            transponder: createTransponder(ChipType.ULTRALIGHT, rawData, {
-              memorySize: 48, // Original Ultralight has 48 bytes user memory
-              confidence: 'medium',
-            }),
-          };
-        }
-
-        // No MifareUltralight tech - fall back to unknown NTAG
-        console.log('[Detector] NTAG detection failed, falling back to NTAG_UNKNOWN');
-        return {
-          success: true,
-          transponder: createTransponder(ChipType.NTAG_UNKNOWN, rawData, {
-            confidence: 'low',
-          }),
-        };
-      }
+    // 3. Type 2 family (NTAG / Ultralight via Layer 3 GetVersion)
+    //    AN10833 Fig 1: SAK bit 5 = 0, bit 3 = 0 (or SAK absent with NfcA)
+    if (mightBeNtag(sak, techTypes)) {
+      return await runType2Branch(rawData, onProgress);
     }
 
-    // ========================================================================
-    // Step 3: Check for ISO-DEP capable chips (DESFire, NTAG 424 DNA, JavaCard)
-    // ========================================================================
-    if (
-      (sak !== undefined && hasIsoDepCapability(sak)) ||
-      hasIsoDepTech
-    ) {
-      // 3a: Always try DESFire/NTAG 424 DNA detection first via GET_VERSION
-      // This command works on DESFire EV1/2/3, DESFire Light, NTAG 424 DNA
-      onProgress?.('Reading DESFire version...');
-      const desfireResult = await detectDesfire();
-      if (desfireResult.success && desfireResult.chipType) {
-        // Enumerate DESFire applications (best-effort, must run before ISO 7816 SELECT)
-        let desfireAppLabels: string[] | undefined;
-        try {
-          onProgress?.('Enumerating DESFire applications...');
-          const apps = await enumerateDesfireApps();
-          if (apps.length > 0) {
-            desfireAppLabels = formatDesfireApps(apps);
-          }
-        } catch (e) {
-          console.warn('[Detector] DESFire app enumeration failed:', e);
-        }
-
-        // Check for Spark 2 implant on NTAG 424 DNA / NTAG 413 DNA
-        let implantName: string | undefined;
-        const isNtagDna =
-          desfireResult.chipType === ChipType.NTAG424_DNA ||
-          desfireResult.chipType === ChipType.NTAG424_DNA_TT ||
-          desfireResult.chipType === ChipType.NTAG413_DNA;
-
-        if (isNtagDna) {
-          // First, try to detect from cached NDEF records (doesn't require APDU)
-          // This works even after DESFire GET_VERSION puts the tag in native mode
-          const cachedNdefResult = detectSpark2FromNdef(rawData.ndefRecords);
-          if (cachedNdefResult.found && cachedNdefResult.name) {
-            implantName = cachedNdefResult.name;
-            console.log('[Detector] Found Spark 2 implant from cached NDEF:', implantName);
-          } else {
-            // Fallback: Try APDU-based NDEF reading (may fail if tag is in native mode)
-            try {
-              onProgress?.('Reading NDEF for Spark 2...');
-              const spark2Result = await detectSpark2Implant();
-              if (spark2Result.found && spark2Result.name) {
-                implantName = spark2Result.name;
-                console.log('[Detector] Found Spark 2 implant via APDU:', implantName);
-              }
-            } catch (e) {
-              console.warn('[Detector] Spark 2 APDU detection failed:', e);
-            }
-          }
-        }
-
-        return {
-          success: true,
-          transponder: createTransponder(desfireResult.chipType, rawData, {
-            memorySize: desfireResult.storageSize,
-            versionInfo: desfireResult.versionInfo,
-            confidence:
-              desfireResult.chipType === ChipType.DESFIRE_UNKNOWN
-                ? 'medium'
-                : 'high',
-            implantName,
-            installedApplets: desfireAppLabels,
-          }),
-        };
-      }
-
-      // 3b: DESFire command failed - try ATS-based detection
-      const desfireAtsResult = detectDesfireFromAts(
-        rawData.historicalBytes,
-        rawData.ats,
-        sak,
-        rawData.atqa,
-      );
-      if (desfireAtsResult.success && desfireAtsResult.chipType) {
-        return {
-          success: true,
-          transponder: createTransponder(desfireAtsResult.chipType, rawData, {
-            memorySize: desfireAtsResult.storageSize,
-            confidence: 'medium', // Lower confidence since no version command
-          }),
-        };
-      }
-
-      // 3c: Try JavaCard detection (check historical bytes and CPLC)
-      if (mightBeJavaCard(rawData.historicalBytes, rawData.ats)) {
-        onProgress?.('Probing JavaCard applets...');
-        const jcResult = await detectJavaCard();
-        if (jcResult.success && jcResult.chipType) {
-          const implantName = getJavacardImplantName(
-            jcResult.installedApplets,
-            jcResult.isFidesmo,
-          );
-          // Read storage info
-          let storageInfo: Transponder['storageInfo'];
-          try {
-            const mem = await getJavacardStorageInfo();
-            if (mem) {
-              storageInfo = mem;
-            }
-          } catch {
-            // Storage read is best-effort
-          }
-          return {
-            success: true,
-            transponder: createTransponder(jcResult.chipType, rawData, {
-              confidence:
-                jcResult.chipType === ChipType.JCOP4 ? 'high' : 'medium',
-              implantName,
-              installedApplets: jcResult.installedApplets,
-              storageInfo,
-            }),
-          };
-        }
-
-        // JavaCard CPLC failed - try ATS-based detection
-        const jcAtsResult = detectJavaCardFromAts(
-          rawData.historicalBytes,
-          rawData.ats,
-        );
-        if (jcAtsResult.success && jcAtsResult.chipType) {
-          return {
-            success: true,
-            transponder: createTransponder(jcAtsResult.chipType, rawData, {
-              confidence: 'medium',
-            }),
-          };
-        }
-      }
-
-      // 3d: If DESFire and likely JavaCard checks failed, try JavaCard as general fallback
-      // (some JavaCards don't have obvious historical bytes)
-      onProgress?.('Probing for smartcard applets...');
-      const jcFallback = await detectJavaCard();
-      if (jcFallback.success && jcFallback.chipType) {
-        const implantName = getJavacardImplantName(
-          jcFallback.installedApplets,
-          jcFallback.isFidesmo,
-        );
-        // Read storage info
-        let fallbackStorageInfo: Transponder['storageInfo'];
-        try {
-          const mem = await getJavacardStorageInfo();
-          if (mem) {
-            fallbackStorageInfo = mem;
-          }
-        } catch {
-          // Storage read is best-effort
-        }
-        return {
-          success: true,
-          transponder: createTransponder(jcFallback.chipType, rawData, {
-            confidence: 'medium',
-            implantName,
-            installedApplets: jcFallback.installedApplets,
-            storageInfo: fallbackStorageInfo,
-          }),
-        };
-      }
-
-      // 3e: Last resort - try ATS-based JavaCard detection without mightBeJavaCard check
-      const jcAtsFallback = detectJavaCardFromAts(
-        rawData.historicalBytes,
-        rawData.ats,
-      );
-      if (jcAtsFallback.success && jcAtsFallback.chipType) {
-        return {
-          success: true,
-          transponder: createTransponder(jcAtsFallback.chipType, rawData, {
-            confidence: 'low',
-          }),
-        };
-      }
-
-      // ISO-DEP but couldn't identify - mark as unknown ISO 14443-A
-      return {
-        success: true,
-        transponder: createTransponder(ChipType.ISO14443A_UNKNOWN, rawData, {
-          confidence: 'low',
-        }),
-      };
+    // 4. ISO 14443-4 / T=CL (DESFire, Plus, JavaCard, NTAG DNA)
+    //    AN10833 Fig 1: SAK bit 5 = 1
+    if ((sak !== undefined && hasIsoDepCapability(sak)) || hasIsoDepTech) {
+      return await runIso14443_4Branch(rawData, onProgress);
     }
 
-    // ========================================================================
-    // Step 4: Check for ISO 15693 (NFC-V) - SLIX and NTAG 5 detection
-    // ========================================================================
+    // 5. ISO 15693 / NFC-V
     if (isIso15693(techTypes)) {
-      onProgress?.('Reading ISO 15693 system info...');
-      const iso15693Result = await detectIso15693();
-      if (iso15693Result.success && iso15693Result.chipType) {
-        // Determine confidence based on whether we got a specific chip type
-        const knownTypes = [
-          ChipType.SLIX,
-          ChipType.SLIX2,
-          ChipType.SLIX_S,
-          ChipType.SLIX_L,
-          ChipType.NTAG5_LINK,
-          ChipType.NTAG5_BOOST,
-          ChipType.NTAG5_SWITCH,
-        ];
-        const confidence =
-          iso15693Result.chipType === ChipType.ISO15693_UNKNOWN
-            ? 'low'
-            : knownTypes.includes(iso15693Result.chipType)
-              ? 'high'
-              : 'medium';
-
-        let implantName: string | undefined;
-
-        // For NTAG5 Boost/Link: check for sensor implants (Temptress, VK Thermo)
-        const isNtag5WithI2c =
-          iso15693Result.chipType === ChipType.NTAG5_BOOST ||
-          iso15693Result.chipType === ChipType.NTAG5_LINK;
-
-        let sensorTemperature: Transponder['temperature'];
-        let sensorTemperature2: Transponder['temperature2'];
-
-        if (isNtag5WithI2c && iso15693Result.uid) {
-          try {
-            onProgress?.('Probing I2C sensors...');
-            const sensorResult = await detectNtag5SensorImplant(
-              iso15693Result.uid,
-              iso15693Result.afi,
-              iso15693Result.dsfid,
-            );
-            if (sensorResult.detected && sensorResult.implantName) {
-              implantName = sensorResult.implantName;
-              sensorTemperature = sensorResult.temperature;
-              sensorTemperature2 = sensorResult.temperature2;
-              console.log(
-                '[Detector] Found sensor implant:',
-                implantName,
-                `(${sensorResult.deviceType}, ${sensorResult.sensorType})`,
-              );
-            }
-          } catch (e) {
-            console.warn('[Detector] NTAG5 sensor detection failed:', e);
-            // Sensor probing failure does NOT block basic chip identification
-          }
-        }
-
-        // Check for Spark implant by reading NDEF for vivokey.co URL
-        // (only if we haven't already identified the implant)
-        if (!implantName) {
-          try {
-            onProgress?.('Reading NDEF for Spark 1...');
-            const sparkResult = await detectSparkImplant(iso15693Result.chipType);
-            if (sparkResult.found && sparkResult.name) {
-              implantName = sparkResult.name;
-              console.log('[Detector] Found Spark implant:', implantName);
-            }
-          } catch (e) {
-            console.warn('[Detector] Spark detection failed:', e);
-          }
-        }
-
-        return {
-          success: true,
-          transponder: createTransponder(iso15693Result.chipType, rawData, {
-            confidence,
-            implantName,
-            temperature: sensorTemperature,
-            temperature2: sensorTemperature2,
-          }),
-        };
-      }
-
-      // Fallback to unknown ISO 15693
-      return {
-        success: true,
-        transponder: createTransponder(ChipType.ISO15693_UNKNOWN, rawData, {
-          confidence: 'low',
-        }),
-      };
+      return await runIso15693Branch(rawData, onProgress);
     }
 
-    // ========================================================================
-    // Step 5: Check for ISO 14443-B
-    // ========================================================================
+    // 6. ISO 14443-B
     if (techTypes.some(t => t.includes('NfcB'))) {
-      return {
-        success: true,
-        transponder: createTransponder(ChipType.ISO14443B_UNKNOWN, rawData, {
-          confidence: 'low',
-        }),
-      };
+      return runIso14443BBranch(rawData);
     }
 
-    // ========================================================================
-    // Fallback: Unknown chip
-    // ========================================================================
+    // No branch matched
     return {
       success: true,
       transponder: createTransponder(ChipType.UNKNOWN, rawData, {
@@ -601,9 +729,10 @@ export async function detectChip(
   }
 }
 
-/**
- * Get a brief description of what was detected
- */
+// ============================================================================
+// Public utilities (unchanged)
+// ============================================================================
+
 export function getDetectionSummary(transponder: Transponder): string {
   const parts: string[] = [transponder.chipName];
 
@@ -620,13 +749,9 @@ export function getDetectionSummary(transponder: Transponder): string {
   return parts.join(' ');
 }
 
-/**
- * Check if we can do advanced detection on this platform
- */
 export function canDoAdvancedDetection(
   chipType: ChipType,
 ): {canDetect: boolean; reason?: string} {
-  // MIFARE Classic sector operations need Android
   if (
     chipType === ChipType.MIFARE_CLASSIC_1K ||
     chipType === ChipType.MIFARE_CLASSIC_4K ||
