@@ -1,0 +1,44 @@
+{
+  "name": "ICODE DNA",
+  "capturedAt": "2026-05-10T20:50:20.617Z",
+  "platform": "android",
+  "rawData": {
+    "uid": "01:00:00:00:00:01:04:E0",
+    "techTypes": [
+      "android.nfc.tech.NfcV",
+      "android.nfc.tech.Ndef"
+    ]
+  },
+  "apduCalls": [
+    {"layer": "iso15693", "command": "022b", "response": "000f01000000000104e000003f0301"},
+    {"layer": "iso15693", "command": "022000", "response": "00e1432000"},
+    {"layer": "iso15693", "command": "022001", "response": "000331d101"},
+    {"layer": "iso15693", "command": "022002", "response": "002d550476"},
+    {"layer": "iso15693", "command": "022003", "response": "0069766f6b"},
+    {"layer": "iso15693", "command": "022004", "response": "0065792e63"},
+    {"layer": "iso15693", "command": "022005", "response": "006f2f6363"},
+    {"layer": "iso15693", "command": "022006", "response": "0030303030"},
+    {"layer": "iso15693", "command": "022007", "response": "0030303030"}
+  ],
+  "apduResponses": {
+    "iso15693:022b": "000f01000000000104e000003f0301",
+    "iso15693:022000": "00e1432000",
+    "iso15693:022001": "000331d101",
+    "iso15693:022002": "002d550476",
+    "iso15693:022003": "0069766f6b",
+    "iso15693:022004": "0065792e63",
+    "iso15693:022005": "006f2f6363",
+    "iso15693:022006": "0030303030",
+    "iso15693:022007": "0030303030"
+  },
+  "anonymizationNotes": [
+    "UID redacted: trailing manufacturer bytes (04:E0) preserved; NDEF leading 0x01 marker kept; serial portion zeroed.",
+    "VivoKey URL preserved up to '/cc'; user identifier replaced with ASCII zeros."
+  ],
+  "expectedDetection": {
+    "type": "ICODE_DNA",
+    "confidence": "medium",
+    "capabilities": ["iso15693-shape", "aes-protected"],
+    "chipName": "ICODE DNA"
+  }
+}

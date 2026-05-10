@@ -1,0 +1,40 @@
+{
+  "name": "ICODE SLIX2",
+  "capturedAt": "2026-05-10T20:51:16.643Z",
+  "platform": "android",
+  "rawData": {
+    "uid": "02:00:00:00:00:01:04:E0",
+    "techTypes": [
+      "android.nfc.tech.NfcV",
+      "android.nfc.tech.NdefFormatable"
+    ]
+  },
+  "apduCalls": [
+    {"layer": "iso15693", "command": "022b", "response": "000f02000000000104e000004f0301"},
+    {"layer": "iso15693", "command": "022000", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022001", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022002", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022003", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022004", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022005", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022006", "response": "0000000000"},
+    {"layer": "iso15693", "command": "022007", "response": "0000000000"}
+  ],
+  "apduResponses": {
+    "iso15693:022b": "000f02000000000104e000004f0301",
+    "iso15693:022000": "0000000000",
+    "iso15693:022001": "0000000000",
+    "iso15693:022002": "0000000000",
+    "iso15693:022003": "0000000000",
+    "iso15693:022004": "0000000000",
+    "iso15693:022005": "0000000000",
+    "iso15693:022006": "0000000000",
+    "iso15693:022007": "0000000000"
+  },
+  "expectedDetection": {
+    "type": "SLIX2",
+    "confidence": "high",
+    "capabilities": ["iso15693-shape"],
+    "chipName": "ICODE SLIX2"
+  }
+}

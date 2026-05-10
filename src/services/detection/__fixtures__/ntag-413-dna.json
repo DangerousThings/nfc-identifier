@@ -1,0 +1,31 @@
+{
+  "name": "NTAG 413 DNA",
+  "capturedAt": "2026-05-10T20:49:10.149Z",
+  "platform": "android",
+  "rawData": {
+    "uid": "04:00:00:00:00:00:90",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.Ndef"
+    ]
+  },
+  "apduCalls": [
+    {"layer": "isoDep", "command": "9060000000", "response": "0404023000110591af"},
+    {"layer": "isoDep", "command": "90af000000", "response": "0404020102110591af"},
+    {"layer": "isoDep", "command": "906a000000", "response": "91ca"}
+  ],
+  "apduResponses": {
+    "isoDep:9060000000": "0404023000110591af",
+    "isoDep:90af000000": "0404020102110591af",
+    "isoDep:906a000000": "91ca"
+  },
+  "expectedDetection": {
+    "type": "NTAG413_DNA",
+    "implementation": "native",
+    "implementationByte": "0x04",
+    "confidence": "high",
+    "capabilities": ["desfire-emulation", "aes-protected", "native-silicon"],
+    "chipName": "NTAG 413 DNA"
+  }
+}

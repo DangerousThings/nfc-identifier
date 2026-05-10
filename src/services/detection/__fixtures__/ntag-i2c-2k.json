@@ -1,0 +1,31 @@
+{
+  "name": "NTAG I2C 2K",
+  "capturedAt": "2026-05-10T20:52:00.625Z",
+  "platform": "android",
+  "rawData": {
+    "uid": "04:00:00:00:00:00:80",
+    "techTypes": [
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.MifareUltralight",
+      "android.nfc.tech.NdefFormatable"
+    ]
+  },
+  "apduCalls": [
+    {"layer": "nfcA", "command": "60", "response": "0004040502021503"},
+    {"layer": "nfcA", "command": "301dc", "response": "00000000000000000000000000000000"},
+    {"layer": "nfcA", "command": "301d8", "response": "00000000000000000000000000000000"}
+  ],
+  "apduResponses": {
+    "nfcA:60": "0004040502021503",
+    "nfcA:301dc": "00000000000000000000000000000000",
+    "nfcA:301d8": "00000000000000000000000000000000"
+  },
+  "expectedDetection": {
+    "type": "NTAG_I2C_2K",
+    "implementation": "native",
+    "implementationByte": "0x04",
+    "confidence": "high",
+    "capabilities": ["ntag-type2", "i2c-sensor-bus", "native-silicon"],
+    "chipName": "NTAG I2C 2K"
+  }
+}

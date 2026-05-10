@@ -1,0 +1,67 @@
+{
+  "name": "JCOP4 (J3R180)",
+  "capturedAt": "2026-05-10T20:50:05.742Z",
+  "platform": "android",
+  "rawData": {
+    "uid": "04:00:00:00:00:00:80",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.Ndef"
+    ]
+  },
+  "apduCalls": [
+    {"layer": "isoDep", "command": "9060000000", "response": "6e00"},
+    {"layer": "isoDep", "command": "00a4040008a00000000300000000", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a404000ca0000008466d656d6f72790100", "response": "00004bb400014970057d0fd09000"},
+    {"layer": "isoDep", "command": "00a404000ba00000061702000200000100", "response": "6d00"},
+    {"layer": "isoDep", "command": "00a404000ba00000061702000200000200", "response": "6d00"},
+    {"layer": "isoDep", "command": "00a404000ca0000006170200090001010100", "response": "420300011745070001170000000000009000"},
+    {"layer": "isoDep", "command": "00a404000ca0000008466d656d6f72790100", "response": "00004bb400014970057d0fd09000"},
+    {"layer": "isoDep", "command": "00a4040006d2760001240100", "response": "9000"},
+    {"layer": "isoDep", "command": "00a4040008a0000006472f000200", "response": "6d00"},
+    {"layer": "isoDep", "command": "00a4040009a0000006472f00010100", "response": "5532465f56329000"},
+    {"layer": "isoDep", "command": "00a404000da000000527210101415045580100", "response": "6d00"},
+    {"layer": "isoDep", "command": "00a4040007d276000085010100", "response": "9000"},
+    {"layer": "isoDep", "command": "00a4040007a000000527210100", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a4040005a00000030800", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a40400095361746f436869700000", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a404000b536565644b65657065720000", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a4040007a000000804000100", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a4040008a00000052720010100", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a404000e325041592e5359532e444446303100", "response": "6a86"},
+    {"layer": "isoDep", "command": "00a404000ca0000008466d656d6f72790100", "response": "00004bb400014970057d0fd09000"}
+  ],
+  "apduResponses": {
+    "isoDep:9060000000": "6e00",
+    "isoDep:00a4040008a00000000300000000": "6a86",
+    "isoDep:00a404000ca0000008466d656d6f72790100": "00004bb400014970057d0fd09000",
+    "isoDep:00a404000ba00000061702000200000100": "6d00",
+    "isoDep:00a404000ba00000061702000200000200": "6d00",
+    "isoDep:00a404000ca0000006170200090001010100": "420300011745070001170000000000009000",
+    "isoDep:00a4040006d2760001240100": "9000",
+    "isoDep:00a4040008a0000006472f000200": "6d00",
+    "isoDep:00a4040009a0000006472f00010100": "5532465f56329000",
+    "isoDep:00a404000da000000527210101415045580100": "6d00",
+    "isoDep:00a4040007d276000085010100": "9000",
+    "isoDep:00a4040007a000000527210100": "6a86",
+    "isoDep:00a4040005a00000030800": "6a86",
+    "isoDep:00a40400095361746f436869700000": "6a86",
+    "isoDep:00a404000b536565644b65657065720000": "6a86",
+    "isoDep:00a4040007a000000804000100": "6a86",
+    "isoDep:00a4040008a00000052720010100": "6a86",
+    "isoDep:00a404000e325041592e5359532e444446303100": "6a86"
+  },
+  "anonymizationNotes": [
+    "UID serial portion zeroed; NXP manufacturer byte (0x04) preserved.",
+    "Fidesmo identity response (a0000006...010100): IC serial bytes (last 4 of the 12-byte fingerprint) replaced with 00s; product/fab/batch fields preserved.",
+    "JavaCard Memory persistentTotal preserved at 0x00014970 = 84336 (Apex signature)."
+  ],
+  "expectedDetection": {
+    "type": "JCOP4",
+    "confidence": "medium",
+    "capabilities": ["iso7816-substrate", "aes-protected"],
+    "chipName": "JCOP4 (J3R180)",
+    "implantName": "Apex"
+  }
+}
