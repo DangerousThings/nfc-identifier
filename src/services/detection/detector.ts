@@ -70,6 +70,7 @@ import {
   detectJavaCardFromAts,
   getJavacardStorageInfo,
 } from './javacard';
+import {deriveCapabilities} from './capabilities';
 
 // ============================================================================
 // Helpers
@@ -105,6 +106,11 @@ function createTransponder(
     );
   }
 
+  const capabilities = deriveCapabilities({
+    type,
+    implementation: options.implementation,
+  });
+
   return {
     type,
     family: getChipFamily(type),
@@ -131,6 +137,7 @@ function createTransponder(
     detectedOn: Platform.OS as 'ios' | 'android',
     implementation: options.implementation,
     implementationByte: options.implementationByte,
+    capabilities,
   };
 }
 

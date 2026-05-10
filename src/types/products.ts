@@ -32,6 +32,49 @@ export enum ProductCategory {
 export type DesfireEvLevel = 1 | 2 | 3;
 
 /**
+ * Capability tags describing what a chip exposes or what a product requires.
+ *
+ * Used for capability-driven matching: a product matches a scanned tag when
+ * the tag's capability set is a superset of the product's `requiredSourceCapabilities`.
+ *
+ * Capability semantics (per the AN10833 rework design):
+ *
+ * **Interface shape** — what command set the chip speaks:
+ * - `ntag-type2`         — NFC Type 2 (NTAG 21x, NTAG I2C, MIFARE Ultralight)
+ * - `classic-emulation`  — exposes the MIFARE Classic command set (real or emulated)
+ * - `desfire-emulation`  — exposes the DESFire / NTAG DNA command set (Layer 4)
+ * - `iso15693-shape`     — ISO 15693 / NFC-V (SLIX, NTAG 5)
+ * - `iso7816-substrate`  — ISO 7816 capable; can host JavaCard applets
+ *
+ * **Substrate** — what physical silicon the interface runs on:
+ * - `native-silicon`        — real silicon of the named family
+ * - `smartcard-substrate`   — SmartMX / Plus EV1 / JCOP emulating another family
+ * - `mifare-2go-virtual`    — cloud-backed virtual card on a phone
+ *
+ * **Hardware features**:
+ * - `i2c-sensor-bus`        — chip exposes an I²C bus for sensors (NTAG 5 Boost/Link)
+ * - `aes-protected`         — chip uses AES authentication on its memory/applets
+ * - `crypto1-only`          — chip uses only Crypto1 (real MIFARE Classic)
+ * - `cloneable-via-magic`   — implant accepts magic-card UID/sector writes
+ */
+export type ChipCapability =
+  // Interface shape
+  | 'ntag-type2'
+  | 'classic-emulation'
+  | 'desfire-emulation'
+  | 'iso15693-shape'
+  | 'iso7816-substrate'
+  // Substrate
+  | 'native-silicon'
+  | 'smartcard-substrate'
+  | 'mifare-2go-virtual'
+  // Hardware features
+  | 'i2c-sensor-bus'
+  | 'aes-protected'
+  | 'crypto1-only'
+  | 'cloneable-via-magic';
+
+/**
  * A Dangerous Things product
  */
 export interface Product {
@@ -40,7 +83,25 @@ export interface Product {
   description: string;
   formFactor: FormFactor;
   categories: ProductCategory[];
+  /**
+   * Legacy chip-type compatibility list. Retained for the existing matcher
+   * fallback path while products are being migrated to capability-based
+   * matching (M7b). New products should declare `requiredSourceCapabilities`.
+   */
   compatibleChips: ChipType[];
+  /**
+   * Capabilities this implant itself exposes — used for forward-compatibility
+   * with future capability-driven UX (e.g. "this implant supports AES").
+   */
+  exposedCapabilities?: ChipCapability[];
+  /**
+   * Capabilities a *source* card must expose for this product to be a
+   * meaningful match. The matcher selects products whose required set is
+   * a subset of the source tag's derived `capabilities` field.
+   *
+   * If absent or empty, the matcher falls back to `compatibleChips`.
+   */
+  requiredSourceCapabilities?: ChipCapability[];
   features: string[];
   url: string;
   /** Whether this product can have data cloned TO it from the scanned chip */

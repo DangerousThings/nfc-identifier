@@ -253,6 +253,14 @@ export interface Transponder {
    * lower nibble = product family.
    */
   implementationByte?: number;
+
+  /**
+   * Derived capability tags (interface shape, substrate, hardware features).
+   * Computed from `type` + `implementation` + raw data via
+   * `deriveCapabilities()` in the detector. Used by capability-driven
+   * product matching.
+   */
+  capabilities?: import('./products').ChipCapability[];
 }
 
 /**
