@@ -5,6 +5,7 @@
 
 import {Platform} from 'react-native';
 import NfcManager, {NfcTech} from 'react-native-nfc-manager';
+import * as fixtureRecorder from '../detection/fixtureRecorder';
 
 export {NfcTech};
 
@@ -352,10 +353,13 @@ export const KNOWN_AIDS = {
 export async function transceiveNfcA(command: number[]): Promise<number[]> {
   try {
     const response = await NfcManager.nfcAHandler.transceive(command);
-    return Array.from(response);
+    const arr = Array.from(response);
+    fixtureRecorder.record('nfcA', command, arr);
+    return arr;
   } catch (error) {
     // Use debug level - some failures are expected (e.g., GET_VERSION on original Ultralight)
     console.debug('[commands] NfcA transceive failed:', error);
+    fixtureRecorder.record('nfcA', command, null);
     throw error;
   }
 }
@@ -366,9 +370,12 @@ export async function transceiveNfcA(command: number[]): Promise<number[]> {
 export async function transceiveIsoDep(command: number[]): Promise<number[]> {
   try {
     const response = await NfcManager.isoDepHandler.transceive(command);
-    return Array.from(response);
+    const arr = Array.from(response);
+    fixtureRecorder.record('isoDep', command, arr);
+    return arr;
   } catch (error) {
     console.error('[commands] IsoDep transceive failed:', error);
+    fixtureRecorder.record('isoDep', command, null);
     throw error;
   }
 }
@@ -381,9 +388,12 @@ export async function transceiveMifareIOS(
 ): Promise<number[]> {
   try {
     const response = await NfcManager.sendMifareCommandIOS(command);
-    return Array.from(response);
+    const arr = Array.from(response);
+    fixtureRecorder.record('mifareIOS', command, arr);
+    return arr;
   } catch (error) {
     console.error('[commands] MifareIOS transceive failed:', error);
+    fixtureRecorder.record('mifareIOS', command, null);
     throw error;
   }
 }
@@ -396,9 +406,12 @@ export async function transceiveIsoDepIOS(command: number[]): Promise<number[]> 
   try {
     // Try isoDepHandler first - works for ISO 14443-4 tags
     const response = await NfcManager.isoDepHandler.transceive(command);
-    return Array.from(response);
+    const arr = Array.from(response);
+    fixtureRecorder.record('isoDepIOS', command, arr);
+    return arr;
   } catch (error) {
     console.error('[commands] isoDepHandler transceive failed:', error);
+    fixtureRecorder.record('isoDepIOS', command, null);
     throw error;
   }
 }
@@ -411,9 +424,12 @@ export async function transceiveNfcV(command: number[]): Promise<number[]> {
   try {
     // Android uses nfcVHandler.transceive for raw commands
     const response = await NfcManager.nfcVHandler.transceive(command);
-    return Array.from(response);
+    const arr = Array.from(response);
+    fixtureRecorder.record('iso15693', command, arr);
+    return arr;
   } catch (error) {
     console.error('[commands] NfcV transceive failed:', error);
+    fixtureRecorder.record('iso15693', command, null);
     throw error;
   }
 }

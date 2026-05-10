@@ -71,6 +71,8 @@ import {
   getJavacardStorageInfo,
 } from './javacard';
 import {deriveCapabilities} from './capabilities';
+import * as fixtureRecorder from './fixtureRecorder';
+import {isFixtureCaptureEnabled} from '../../hooks/useFixtureCapture';
 
 // ============================================================================
 // Helpers
@@ -747,6 +749,16 @@ export async function detectChip(
   rawData: RawTagData,
   onProgress?: DetectionProgressCallback,
 ): Promise<DetectionResult> {
+  // Start fixture capture if the user has it enabled — runs in parallel with
+  // the rest of detection. Read is fire-and-forget (await still resolves
+  // before the first transceive call because both are awaited from the same
+  // event loop tick).
+  if (await isFixtureCaptureEnabled()) {
+    fixtureRecorder.startCapture();
+  } else {
+    fixtureRecorder.stopCapture();
+  }
+
   try {
     const {sak, techTypes} = rawData;
     const hasMifareClassicTech = techTypes.some(t => t.includes('MifareClassic'));

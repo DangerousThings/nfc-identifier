@@ -12,6 +12,7 @@ import {
   ResultScreen,
 } from './src/screens';
 import {DataConsentProvider, useDataConsent} from './src/hooks/useDataConsent';
+import {FixtureCaptureProvider} from './src/hooks/useFixtureCapture';
 import {useMotionMonitor} from './src/hooks/useMotionMonitor';
 import type {RootStackParamList} from './src/types/navigation';
 
@@ -94,16 +95,18 @@ function App() {
   return (
     <SafeAreaProvider>
       <DataConsentProvider>
-        <DTThemeProvider>
-          <StatusBar
-            barStyle="light-content"
-            translucent
-            backgroundColor="transparent"
-          />
-          <NavigationContainer theme={NavigationTheme}>
-            <AppNavigator />
-          </NavigationContainer>
-        </DTThemeProvider>
+        <FixtureCaptureProvider>
+          <DTThemeProvider>
+            <StatusBar
+              barStyle="light-content"
+              translucent
+              backgroundColor="transparent"
+            />
+            <NavigationContainer theme={NavigationTheme}>
+              <AppNavigator />
+            </NavigationContainer>
+          </DTThemeProvider>
+        </FixtureCaptureProvider>
       </DataConsentProvider>
     </SafeAreaProvider>
   );

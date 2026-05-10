@@ -5,12 +5,15 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {DTButton, DTColors, DTSwitch} from '@dangerousthings/react-native';
 import * as Clipboard from 'expo-clipboard';
 import {useDataConsent} from '../hooks/useDataConsent';
+import {useFixtureCapture} from '../hooks/useFixtureCapture';
 import {sampleCollector} from '../services/motion';
 import type {HomeScreenProps} from '../types/navigation';
 
 export function HomeScreen({navigation}: HomeScreenProps) {
   const insets = useSafeAreaInsets();
   const {consentStatus, setConsent, clearLocalData} = useDataConsent();
+  const {enabled: fixtureCaptureEnabled, setEnabled: setFixtureCaptureEnabled} =
+    useFixtureCapture();
   const [showSettings, setShowSettings] = useState(false);
 
   const handleToggleConsent = useCallback(
@@ -97,6 +100,13 @@ export function HomeScreen({navigation}: HomeScreenProps) {
               onValueChange={handleToggleConsent}
               label="Share motion data to improve scanning"
               variant="normal"
+            />
+
+            <DTSwitch
+              value={fixtureCaptureEnabled}
+              onValueChange={setFixtureCaptureEnabled}
+              label="Capture detection fixtures (dev/QA)"
+              variant="other"
             />
 
             <View style={styles.settingsButtons}>

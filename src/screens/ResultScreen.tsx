@@ -62,13 +62,17 @@ function matchWarningColor(warning: MatchWarning): string {
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
 import { getChipFamily } from '../types/detection';
 import { useDataConsent } from '../hooks/useDataConsent';
+import { useFixtureCapture } from '../hooks/useFixtureCapture';
 import { sampleCollector } from '../services/motion';
+import * as fixtureRecorder from '../services/detection/fixtureRecorder';
+import * as Clipboard from 'expo-clipboard';
 
 export function ResultScreen({ route, navigation }: ResultScreenProps) {
   const { tagData, transponder } = route.params;
   const [showChipInfo, setShowChipInfo] = useState(false);
   const chipInfoArrowRotation = useRef(new Animated.Value(0)).current;
   const { consentStatus } = useDataConsent();
+  const { enabled: fixtureCaptureEnabled } = useFixtureCapture();
   const insets = useSafeAreaInsets();
 
   // Periodic idle baseline capture for motion data collection
@@ -159,6 +163,28 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
       conversion: productCount > 0 ? afterProducts + 75 : 375, // Between raw data and actions
     };
   }, [productCount]);
+
+  const handleCopyFixture = async () => {
+    if (!tagData) {
+      return;
+    }
+    const rawData = {
+      uid: tagData.uid,
+      sak: tagData.sak,
+      atqa: tagData.atqa,
+      ats: tagData.ats,
+      historicalBytes: tagData.historicalBytes,
+      techTypes: tagData.techTypes,
+    };
+    const fixture = fixtureRecorder.buildFixture(
+      transponder?.chipName ?? 'unknown-chip',
+      rawData as never,
+      transponder ?? undefined,
+    );
+    const json = JSON.stringify(fixture, null, 2);
+    await Clipboard.setStringAsync(json);
+    console.log('[Detector] Fixture copied to clipboard');
+  };
 
   // Build URL with UTM tracking parameters for analytics
   const buildTrackedUrl = (baseUrl: string, content?: string) => {
@@ -714,6 +740,21 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               </Surface>
             </AnimatedSection>
           )}
+
+        {/* Fixture capture export — only when toggled on in settings */}
+        {fixtureCaptureEnabled && (
+          <AnimatedSection delay={delays.actions}>
+            <View style={styles.actions}>
+              <DTButton
+                variant="other"
+                mode="outlined"
+                onPress={handleCopyFixture}
+                style={{ width: '100%' }}>
+                COPY FIXTURE JSON
+              </DTButton>
+            </View>
+          </AnimatedSection>
+        )}
 
         {/* Action Buttons */}
         <AnimatedSection delay={delays.actions}>
