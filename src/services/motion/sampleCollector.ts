@@ -6,10 +6,15 @@
 import {Platform} from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {motionMonitor} from './motionMonitor';
 import {uploadService} from './uploadService';
-import type {MotionSample, MotionLabel} from '../../types/motion';
+import type {
+  MotionSample,
+  MotionLabel,
+  ScreenOrientation as MotionScreenOrientation,
+} from '../../types/motion';
 
 const SAMPLES_KEY = 'motion_samples';
 const MAX_LOCAL_SAMPLES = 500;
@@ -21,6 +26,26 @@ function getDeviceModel(): string {
 
 function getOsVersion(): string {
   return Device.osVersion ?? 'unknown';
+}
+
+async function getScreenOrientation(): Promise<MotionScreenOrientation> {
+  try {
+    const orientation = await ScreenOrientation.getOrientationAsync();
+    switch (orientation) {
+      case ScreenOrientation.Orientation.PORTRAIT_UP:
+        return 'portrait';
+      case ScreenOrientation.Orientation.PORTRAIT_DOWN:
+        return 'portrait-upside-down';
+      case ScreenOrientation.Orientation.LANDSCAPE_LEFT:
+        return 'landscape-left';
+      case ScreenOrientation.Orientation.LANDSCAPE_RIGHT:
+        return 'landscape-right';
+      default:
+        return 'unknown';
+    }
+  } catch {
+    return 'unknown';
+  }
 }
 
 export class SampleCollector {
@@ -38,6 +63,8 @@ export class SampleCollector {
 
     console.log(`[Motion] Capturing ${label} — ${readings.length} readings`);
 
+    const screenOrientation = await getScreenOrientation();
+
     const sample: MotionSample = {
       id: Crypto.randomUUID(),
       timestamp: new Date().toISOString(),
@@ -45,6 +72,7 @@ export class SampleCollector {
       deviceModel: getDeviceModel(),
       platform: Platform.OS as 'ios' | 'android',
       osVersion: getOsVersion(),
+      screenOrientation,
       sensorData: {
         samplingRateHz: motionMonitor.samplingRateHz,
         readings,

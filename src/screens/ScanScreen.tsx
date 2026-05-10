@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Button, Text } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DTButton, DTColors } from '@dangerousthings/react-native';
 import type { ScanScreenProps } from '../types/navigation';
 import { useScan } from '../hooks';
@@ -9,6 +10,7 @@ import { getScanInstructions } from '../services/nfc';
 import { ScanAnimation } from '../components';
 
 export function ScanScreen({ navigation }: ScanScreenProps) {
+  const insets = useSafeAreaInsets();
   const { consentStatus } = useDataConsent();
   const {
     state,
@@ -270,7 +272,7 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
         )}
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <Button
           mode="text"
           onPress={handleCancel}

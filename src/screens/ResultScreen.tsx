@@ -6,6 +6,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DTCard, DTButton, DTColors, DTLabel, DTChip } from '@dangerousthings/react-native';
 
 // Animated section wrapper for staggered entry
@@ -56,6 +57,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
   const [showChipInfo, setShowChipInfo] = useState(false);
   const chipInfoArrowRotation = useRef(new Animated.Value(0)).current;
   const { consentStatus } = useDataConsent();
+  const insets = useSafeAreaInsets();
 
   // Periodic idle baseline capture for motion data collection
   useEffect(() => {
@@ -185,7 +187,9 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}>
       <View style={styles.content}>
         {/* Chip Identification Card */}
         {transponder && (

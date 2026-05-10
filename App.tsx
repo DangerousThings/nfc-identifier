@@ -2,6 +2,7 @@ import React from 'react';
 import {StatusBar} from 'react-native';
 import {NavigationContainer, DefaultTheme} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {DTThemeProvider, DTColors} from '@dangerousthings/react-native';
 
 import {
@@ -91,18 +92,20 @@ function AppNavigator() {
 
 function App() {
   return (
-    <DataConsentProvider>
-      <DTThemeProvider>
-        <StatusBar
-          barStyle="light-content"
-          translucent
-          backgroundColor="transparent"
-        />
-        <NavigationContainer theme={NavigationTheme}>
-          <AppNavigator />
-        </NavigationContainer>
-      </DTThemeProvider>
-    </DataConsentProvider>
+    <SafeAreaProvider>
+      <DataConsentProvider>
+        <DTThemeProvider>
+          <StatusBar
+            barStyle="light-content"
+            translucent
+            backgroundColor="transparent"
+          />
+          <NavigationContainer theme={NavigationTheme}>
+            <AppNavigator />
+          </NavigationContainer>
+        </DTThemeProvider>
+      </DataConsentProvider>
+    </SafeAreaProvider>
   );
 }
 

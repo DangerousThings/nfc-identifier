@@ -35,7 +35,7 @@
     "beta": {
       "android": {
         "serviceAccountKeyPath": "./nfc-identifier-f28151ad3f34.json",
-        "track": "internal"
+        "track": "beta"
       }
     },
     "production": {

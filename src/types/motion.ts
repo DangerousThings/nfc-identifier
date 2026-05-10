@@ -28,6 +28,14 @@ export type MotionLabel =
   | 'scan_timeout'
   | 'app_idle';
 
+/** Device screen orientation at sample capture time */
+export type ScreenOrientation =
+  | 'portrait'
+  | 'portrait-upside-down'
+  | 'landscape-left'
+  | 'landscape-right'
+  | 'unknown';
+
 /** A labeled motion data sample ready for storage/upload */
 export interface MotionSample {
   id: string;
@@ -36,6 +44,7 @@ export interface MotionSample {
   deviceModel: string;
   platform: 'ios' | 'android';
   osVersion: string;
+  screenOrientation: ScreenOrientation;
   sensorData: {
     samplingRateHz: number;
     readings: MotionReading[];
