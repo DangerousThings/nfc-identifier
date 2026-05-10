@@ -18,7 +18,9 @@ import {
 import {
   decodeGetVersion,
   implementationToTransponderField,
+  ImplementationKind,
   NXP_VENDOR_ID,
+  ProductFamily,
 } from './getversion';
 import {lookupDesfireAid, formatDesfireAidLabel, isHiddenAid} from '../../data/desfireAids';
 import type {DesfireAidInfo} from '../../data/desfireAids';
@@ -83,21 +85,6 @@ export function detectSpark2FromNdef(
   console.log('[DESFire] No vivokey.co URL in NDEF records');
   return {found: false};
 }
-
-/**
- * Product type values from GET_VERSION byte 1
- * Per NXP datasheets:
- * - NTAG 413 DNA (NT4H1321): Type 0x04, Subtype 0x02
- * - NTAG 424 DNA (NT4H2421): Type 0x04, Subtype 0x05
- * - NTAG 424 DNA TT: Type 0x04, Subtype 0x04
- * - DESFire EV1/EV2/EV3: Type 0x01
- */
-const PRODUCT_TYPES = {
-  DESFIRE: 0x01, // Standard DESFire
-  NTAG_DNA: 0x04, // NTAG DNA family (413/424) - distinguished by subtype
-  NTAG_I2C: 0x05, // NTAG I2C family (can have ISO-DEP on Plus variants)
-  DESFIRE_LIGHT: 0x08, // DESFire Light
-} as const;
 
 /**
  * NTAG DNA subtype values from GET_VERSION byte 2
@@ -231,14 +218,7 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
     // status header to skip).
     const decoded = decodeGetVersion(parsed1.data);
 
-    // `hwProductType` here is the raw byte 1 (family + implementation
-    // nibbles combined). The chip-type decisions below check this raw value
-    // against constants like 0x01 (DESFIRE), so they currently match only
-    // when the implementation nibble is 0 (native). Non-native cards
-    // (SmartMX-emulated etc.) fall through to DESFIRE_UNKNOWN today; later
-    // milestones will use `decoded.productFamily` directly to handle them.
     const hwVendorId = decoded.vendorId;
-    const hwProductType = decoded.productFamilyByte;
     const hwSubtype = decoded.subtype;
     const hwMajor = decoded.hwMajor;
     const hwMinor = decoded.hwMinor;
@@ -278,82 +258,131 @@ export async function detectDesfire(): Promise<DesfireDetectionResult> {
       }
     }
 
-    // Determine chip type based on product type and version
+    // Determine chip type based on the decoded product family (lower nibble
+    // of byte 1) — using the enum lets non-native implementations route
+    // correctly even when byte 1's upper nibble carries SmartMX/JavaCard/2GO.
     let chipType: ChipType;
 
-    if (hwProductType === PRODUCT_TYPES.NTAG_DNA) {
-      // NTAG DNA family (413/424) - distinguish by subtype per NXP datasheets
-      // NT4H1321 (NTAG 413 DNA): Subtype 0x02, Major 0x04
-      // NT4H2421 (NTAG 424 DNA): Subtype 0x05, Major 0x04
-      // NT4H2421 TT (NTAG 424 DNA TagTamper): Subtype 0x04, Major 0x04
-      switch (hwSubtype) {
-        case NTAG_DNA_SUBTYPES.NTAG413_DNA:
-          console.log('[DESFire] Detected NTAG 413 DNA (product 0x04, subtype 0x02)');
-          chipType = ChipType.NTAG413_DNA;
-          break;
-        case NTAG_DNA_SUBTYPES.NTAG424_DNA_TT:
-          console.log('[DESFire] Detected NTAG 424 DNA TT (product 0x04, subtype 0x04)');
-          chipType = ChipType.NTAG424_DNA_TT;
-          break;
-        case NTAG_DNA_SUBTYPES.NTAG424_DNA:
-          console.log('[DESFire] Detected NTAG 424 DNA (product 0x04, subtype 0x05)');
-          chipType = ChipType.NTAG424_DNA;
-          break;
-        default:
-          // Unknown NTAG DNA subtype - log and fall back to 424 DNA as most common
-          console.warn(
-            `[DESFire] Unknown NTAG DNA subtype: 0x${hwSubtype.toString(16)}, major: 0x${hwMajor.toString(16)}`,
+    switch (decoded.productFamily) {
+      case ProductFamily.NTAG: {
+        // NTAG DNA family. AN10833: HW major 0xA0 → NTAG X DNA (next-gen);
+        // otherwise dispatch by subtype as before.
+        if (hwMajor === 0xa0) {
+          console.log(
+            '[DESFire] Detected NTAG X DNA (NTAG family, hwMajor 0xA0)',
           );
-          chipType = ChipType.NTAG424_DNA;
-      }
-    } else if (hwProductType === PRODUCT_TYPES.NTAG_I2C) {
-      // NTAG I2C family (can have ISO-DEP on Plus variants)
-      // Per NXP NT3H2111/NT3H2211 datasheet:
-      // - Storage size 0x13 = 1K variant (NT3H1101, NT3H2111)
-      // - Storage size 0x15 = 2K variant (NT3H1201, NT3H2211)
-      // - Subtype 0x01 = non-Plus, 0x02 = Plus
-      const isPlus = hwSubtype === 0x02;
-
-      if (hwStorageSize === 0x13) {
-        chipType = isPlus ? ChipType.NTAG_I2C_PLUS_1K : ChipType.NTAG_I2C_1K;
-      } else if (hwStorageSize === 0x15) {
-        chipType = isPlus ? ChipType.NTAG_I2C_PLUS_2K : ChipType.NTAG_I2C_2K;
-      } else {
-        // Unknown storage size - report as unknown NTAG
-        console.warn(
-          `[DESFire] NTAG I2C with unknown storage size: 0x${hwStorageSize.toString(16)}`,
-        );
-        chipType = ChipType.NTAG_UNKNOWN;
-      }
-    } else if (hwProductType === PRODUCT_TYPES.DESFIRE_LIGHT) {
-      // DESFire Light
-      chipType = ChipType.DESFIRE_LIGHT;
-    } else if (hwProductType === PRODUCT_TYPES.DESFIRE) {
-      // Standard DESFire - determine version from hwMajor
-      chipType = DESFIRE_VERSION_MAP[hwMajor];
-
-      // If not in our map, try to infer from the version range
-      if (!chipType) {
-        console.warn(
-          `[DESFire] Unknown hardware major version: 0x${hwMajor.toString(16)}`,
-        );
-        // Infer based on version ranges per NXP conventions
-        if (hwMajor <= 0x01) {
-          chipType = ChipType.DESFIRE_EV1;
-        } else if (hwMajor >= 0x10 && hwMajor < 0x30) {
-          chipType = ChipType.DESFIRE_EV2;
-        } else if (hwMajor >= 0x30) {
-          chipType = ChipType.DESFIRE_EV3;
-        } else {
-          chipType = ChipType.DESFIRE_UNKNOWN;
+          chipType = ChipType.NTAG_X_DNA;
+          break;
         }
+        switch (hwSubtype) {
+          case NTAG_DNA_SUBTYPES.NTAG413_DNA:
+            console.log('[DESFire] Detected NTAG 413 DNA (product 0x04, subtype 0x02)');
+            chipType = ChipType.NTAG413_DNA;
+            break;
+          case NTAG_DNA_SUBTYPES.NTAG424_DNA_TT:
+            console.log('[DESFire] Detected NTAG 424 DNA TT (product 0x04, subtype 0x04)');
+            chipType = ChipType.NTAG424_DNA_TT;
+            break;
+          case NTAG_DNA_SUBTYPES.NTAG424_DNA:
+            console.log('[DESFire] Detected NTAG 424 DNA (product 0x04, subtype 0x05)');
+            chipType = ChipType.NTAG424_DNA;
+            break;
+          default:
+            console.warn(
+              `[DESFire] Unknown NTAG DNA subtype: 0x${hwSubtype.toString(16)}, major: 0x${hwMajor.toString(16)}`,
+            );
+            chipType = ChipType.NTAG424_DNA;
+        }
+        break;
       }
 
-      // Note: DNA variants cannot be reliably detected from GET_VERSION.
-      // To detect DNA, you would need to try reading the originality signature.
-    } else {
-      // Unknown product type
-      chipType = ChipType.DESFIRE_UNKNOWN;
+      case ProductFamily.NTAG_I2C:
+      case ProductFamily.NTAG_I2C_PLUS: {
+        // NTAG I2C family on ISO-DEP. Subtype 0x01 = non-Plus, 0x02 = Plus.
+        const isPlus =
+          decoded.productFamily === ProductFamily.NTAG_I2C_PLUS ||
+          hwSubtype === 0x02;
+
+        if (hwStorageSize === 0x13) {
+          chipType = isPlus ? ChipType.NTAG_I2C_PLUS_1K : ChipType.NTAG_I2C_1K;
+        } else if (hwStorageSize === 0x15) {
+          chipType = isPlus ? ChipType.NTAG_I2C_PLUS_2K : ChipType.NTAG_I2C_2K;
+        } else {
+          console.warn(
+            `[DESFire] NTAG I2C with unknown storage size: 0x${hwStorageSize.toString(16)}`,
+          );
+          chipType = ChipType.NTAG_UNKNOWN;
+        }
+        break;
+      }
+
+      case ProductFamily.DESFIRE_LIGHT:
+        chipType = ChipType.DESFIRE_LIGHT;
+        break;
+
+      case ProductFamily.PLUS:
+        // AN10833: lower nibble 0x2 on Layer 4 GetVersion → MIFARE Plus EV2.
+        // Distinct from MIFARE_PLUS_EV1 which we identify via historical
+        // bytes (M5) when running in SL1 / SL3.
+        console.log('[DESFire] Detected MIFARE Plus EV2 (productFamily=0x2)');
+        chipType = ChipType.MIFARE_PLUS_EV2;
+        break;
+
+      case ProductFamily.DESFIRE: {
+        // AN10833: hwMajor 0xA0 → MIFARE DUOX, the DESFire successor.
+        if (hwMajor === 0xa0) {
+          console.log(
+            '[DESFire] Detected MIFARE DUOX (DESFire family, hwMajor 0xA0)',
+          );
+          chipType = ChipType.MIFARE_DUOX;
+          break;
+        }
+
+        // Standard DESFire — determine EV1/EV2/EV3 from hwMajor.
+        chipType = DESFIRE_VERSION_MAP[hwMajor];
+
+        if (!chipType) {
+          console.warn(
+            `[DESFire] Unknown hardware major version: 0x${hwMajor.toString(16)}`,
+          );
+          // Infer based on version ranges per NXP conventions.
+          if (hwMajor <= 0x01) {
+            chipType = ChipType.DESFIRE_EV1;
+          } else if (hwMajor >= 0x10 && hwMajor < 0x30) {
+            chipType = ChipType.DESFIRE_EV2;
+          } else if (hwMajor >= 0x30) {
+            chipType = ChipType.DESFIRE_EV3;
+          } else {
+            chipType = ChipType.DESFIRE_UNKNOWN;
+          }
+        }
+
+        // Note: DNA variants cannot be reliably detected from GET_VERSION.
+        // To detect DNA, attempt to read the originality signature.
+        break;
+      }
+
+      default:
+        // Unknown product family
+        chipType = ChipType.DESFIRE_UNKNOWN;
+    }
+
+    // AN10833: implementation upper nibble = 0xA → MIFARE 2GO virtual card.
+    // 2GO instances behave like ephemeral DESFire/Plus cards on phones, but
+    // they are cloud-backed and never cloneable. DUOX and NTAG X DNA use
+    // hwMajor=0xA0 for their identification — those have already been
+    // matched above; only override here for "other 0xA cases".
+    if (decoded.implementation === ImplementationKind.MIFARE_2GO) {
+      if (
+        chipType !== ChipType.MIFARE_DUOX &&
+        chipType !== ChipType.NTAG_X_DNA
+      ) {
+        console.log(
+          '[DESFire] Implementation upper nibble = 0xA → MIFARE 2GO virtual card',
+          {previousChipType: chipType},
+        );
+        chipType = ChipType.MIFARE_2GO;
+      }
     }
 
     // Decode storage size
