@@ -388,6 +388,11 @@ eas update --branch beta --message "AN10833 detection rework v1 — see docs/pla
    ```
    Record the `Update group ID` shown — this is our rollback target. Save it in [docs/plans/2026-05-03-an10833-detection-rework-design.md](docs/plans/2026-05-03-an10833-detection-rework-design.md) before pushing.
 
+   **Pre-flight outcome (2026-05-10):** No prior OTA update existed on
+   the `beta` branch — this rework is the first OTA. Rollback strategy
+   therefore becomes "rollback to no update", which makes clients fall
+   back to the JS bundle baked into their installed v1.2.0 APK.
+
 2. Verify the build that will receive this OTA has runtime version compatible with SDK 54 (current). The `runtimeVersion: { policy: 'sdkVersion' }` setting means any beta-channel build on SDK 54 will pick this up.
 
 **Rollback options, fastest first:**
