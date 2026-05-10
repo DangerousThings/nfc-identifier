@@ -5,7 +5,7 @@
  */
 
 import { ChipType, getChipFamily, CHIP_CLONEABILITY, ChipFamily, Transponder } from '../../types/detection';
-import { MatchResult, Product, DesfireEvLevel } from '../../types/products';
+import { ChipCapability, MatchResult, Product, DesfireEvLevel } from '../../types/products';
 import {
   PRODUCTS,
   getChipProductMap,
@@ -13,16 +13,74 @@ import {
 } from '../../data/products';
 
 /**
- * Match a detected chip to compatible products
+ * Check whether a source tag's capabilities satisfy a product's required set.
+ *
+ * Returns true when every entry in `required` is present in `sourceCapabilities`.
+ * An empty/absent required set means "no capability constraint" — the caller
+ * falls back to the legacy chip-type matching path.
+ */
+function capabilitiesSatisfy(
+  sourceCapabilities: ChipCapability[] | undefined,
+  required: ChipCapability[] | undefined,
+): boolean {
+  if (!required || required.length === 0) {
+    return false; // signal "no capability rule for this product"
+  }
+  if (!sourceCapabilities) {
+    return false;
+  }
+  return required.every(cap => sourceCapabilities.includes(cap));
+}
+
+/**
+ * Match a detected chip to compatible products.
+ *
+ * Two-pass matching:
+ * 1. **Capability-driven**: for every product that declares
+ *    `requiredSourceCapabilities`, include it if the source tag's
+ *    `capabilities` set is a superset.
+ * 2. **Legacy chip-type fallback**: for products without a capability rule,
+ *    use the prior `compatibleChips` lookup.
+ *
+ * The two paths are unioned, so capability-matched products with no
+ * `compatibleChips` entry for the source type still surface, and vice
+ * versa during the migration window.
  */
 export function matchChipToProducts(chip: Transponder): MatchResult {
   const chipType = chip.type as ChipType
   const chipProductMap = getChipProductMap();
   const cloneability = CHIP_CLONEABILITY[chipType];
   const chipFamily = getChipFamily(chipType);
+  const sourceCapabilities = chip.capabilities;
 
-  // Get products that directly support this chip
-  const directMatches = chipProductMap.get(chipType) || [];
+  // Pass 1: capability-driven matches
+  const capabilityMatches = new Set<Product>();
+  for (const product of PRODUCTS) {
+    if (
+      product.requiredSourceCapabilities &&
+      product.requiredSourceCapabilities.length > 0 &&
+      capabilitiesSatisfy(sourceCapabilities, product.requiredSourceCapabilities)
+    ) {
+      capabilityMatches.add(product);
+    }
+  }
+
+  // Pass 2: legacy chip-type fallback (only for products without a
+  // capability rule, so we don't double-count)
+  const legacyMatches: Product[] = [];
+  for (const product of chipProductMap.get(chipType) ?? []) {
+    if (
+      !product.requiredSourceCapabilities ||
+      product.requiredSourceCapabilities.length === 0
+    ) {
+      legacyMatches.push(product);
+    }
+  }
+
+  const directMatches: Product[] = [
+    ...capabilityMatches,
+    ...legacyMatches,
+  ];
 
   // Separate exact matches from clone targets
   const exactMatches: Product[] = [];
@@ -34,7 +92,7 @@ export function matchChipToProducts(chip: Transponder): MatchResult {
     }
     if (product.canReceiveClone && cloneability?.cloneable) {
       if ((product.name.startsWith("xMagic") || product.name.startsWith("xM1") || product.name.startsWith("flexM1")) && chip.rawData.uid.replaceAll(":", "").length / 2 !== 4) {
-        // This skips things without a 4-byte UID
+        // Skip 4-byte-UID-only magic cards when the source UID is longer
       } else {
         cloneTargets.push(product);
       }

@@ -88,6 +88,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon'],
     features: [
       'NTAG216 chip',
       '888 bytes user memory',
@@ -107,6 +109,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC, ProductCategory.LED],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon', 'i2c-sensor-bus'],
     features: [
       'NTAG I2C chip',
       '1kB user memory',
@@ -125,6 +129,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC],
     compatibleChips: [...SLIX_COMPATIBLE],
+    requiredSourceCapabilities: ['iso15693-shape'],
+    exposedCapabilities: ['iso15693-shape', 'native-silicon'],
     features: [
       'ICODE SLIX chip',
       '320 bbytes user memory',
@@ -147,6 +153,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon'],
     features: [
       'Dual-frequency',
       'NTAG216 NFC chip',
@@ -168,6 +176,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS, ProductCategory.LED],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon', 'i2c-sensor-bus'],
     features: [
       'NTAG I2C NFC chip',
       '1kB user memory',
@@ -189,6 +199,13 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
+    requiredSourceCapabilities: ['classic-emulation'],
+    exposedCapabilities: [
+      'classic-emulation',
+      'native-silicon',
+      'cloneable-via-magic',
+      'crypto1-only',
+    ],
     features: [
       'Magic MIFARE Classic chip',
       'Changeable UID (4-byte)',
@@ -212,6 +229,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.SECURE, ProductCategory.ACCESS],
     compatibleChips: [...DESFIRE_ALL],
+    requiredSourceCapabilities: ['desfire-emulation'],
+    exposedCapabilities: ['desfire-emulation', 'native-silicon', 'aes-protected'],
     features: [
       'DESFire EV3 chip',
       '8KB memory',
@@ -236,6 +255,13 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.ACCESS],
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
+    requiredSourceCapabilities: ['classic-emulation'],
+    exposedCapabilities: [
+      'classic-emulation',
+      'native-silicon',
+      'cloneable-via-magic',
+      'crypto1-only',
+    ],
     features: [
       'Magic MIFARE Classic 1K',
       'Gen1a and gen2 magic options',
@@ -256,7 +282,17 @@ export const PRODUCTS: Product[] = [
       'Cryptobionic identity implant for secure authentication and digital identity.',
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.SECURE],
+    // Spark 2 spans two unrelated chip families (NTAG 424 DNA / ICODE DNA);
+    // capability matching can't express OR semantics with a single required
+    // set, so we leave requiredSourceCapabilities undefined and rely on the
+    // legacy compatibleChips fallback.
     compatibleChips: [ChipType.NTAG424_DNA, ChipType.NTAG424_DNA_TT, ChipType.ICODE_DNA],
+    exposedCapabilities: [
+      'desfire-emulation',
+      'iso15693-shape',
+      'aes-protected',
+      'native-silicon',
+    ],
     features: [
       'VivoKey Ecosystem',
       'Spark Actions',
@@ -279,6 +315,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.BIORESIN,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon'],
     features: [
       'NTAG216 NFC chip',
       '888 bytes user memory',
@@ -299,7 +337,15 @@ export const PRODUCTS: Product[] = [
       'Bioresin dual-frequency implant with Ultimate Gen4 magic MIFARE and T5577 for maximum compatibility.',
     formFactor: FormFactor.BIORESIN,
     categories: [ProductCategory.DUAL_FREQUENCY, ProductCategory.ACCESS],
+    // Ultimate Gen4 emulates either MIFARE Classic or Ultralight (Type 2);
+    // these are unrelated capability sets so we keep the legacy chip-type
+    // fallback for matching.
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE, ...ULTRALIGHT_COMPATIBLE],
+    exposedCapabilities: [
+      'classic-emulation',
+      'ntag-type2',
+      'cloneable-via-magic',
+    ],
     features: [
       'Ultimate Gen4 magic chip',
       'Changeable UID',
@@ -326,6 +372,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.NFC],
     compatibleChips: [...NTAG21X_COMPATIBLE, ...NTAG_I2C_COMPATIBLE],
+    requiredSourceCapabilities: ['ntag-type2'],
+    exposedCapabilities: ['ntag-type2', 'native-silicon'],
     features: [
       'NTAG216 chip',
       '888 bytes user memory',
@@ -349,6 +397,8 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.SECURE, ProductCategory.ACCESS],
     compatibleChips: [...DESFIRE_ALL],
+    requiredSourceCapabilities: ['desfire-emulation'],
+    exposedCapabilities: ['desfire-emulation', 'native-silicon', 'aes-protected'],
     features: [
       'DESFire EV2 chip',
       '8KB memory',
@@ -372,6 +422,13 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.ACCESS],
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE],
+    requiredSourceCapabilities: ['classic-emulation'],
+    exposedCapabilities: [
+      'classic-emulation',
+      'native-silicon',
+      'cloneable-via-magic',
+      'crypto1-only',
+    ],
     features: [
       'Magic MIFARE Classic 1K',
       'Improved antenna design',
@@ -394,6 +451,12 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.SECURE],
     compatibleChips: [ChipType.JCOP4, ChipType.JAVACARD_UNKNOWN],
+    requiredSourceCapabilities: ['iso7816-substrate'],
+    exposedCapabilities: [
+      'iso7816-substrate',
+      'smartcard-substrate',
+      'aes-protected',
+    ],
     features: [
       'JCOP4 secure element',
       'Fidesmo platform',
@@ -414,6 +477,12 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.SECURE],
     compatibleChips: [ChipType.JCOP4, ChipType.JAVACARD_UNKNOWN],
+    requiredSourceCapabilities: ['iso7816-substrate'],
+    exposedCapabilities: [
+      'iso7816-substrate',
+      'smartcard-substrate',
+      'aes-protected',
+    ],
     features: [
       'SmartMX3 P71 chip',
       'Full JavaCard access',
@@ -454,7 +523,13 @@ export const PRODUCTS: Product[] = [
     description: 'Flexible Ultimate Gen4 magic MIFARE implant for cloning access cards.',
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.ACCESS],
+    // Multi-family magic implant — see dUG4T comment.
     compatibleChips: [...MIFARE_CLASSIC_COMPATIBLE, ...ULTRALIGHT_COMPATIBLE],
+    exposedCapabilities: [
+      'classic-emulation',
+      'ntag-type2',
+      'cloneable-via-magic',
+    ],
     features: [
       'Ultimate Gen4 magic chip',
       'Changeable UID',
@@ -477,6 +552,12 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.FLEX,
     categories: [ProductCategory.NFC, ProductCategory.SENSOR],
     compatibleChips: [ChipType.NTAG5_BOOST, ChipType.NTAG5_LINK],
+    requiredSourceCapabilities: ['iso15693-shape', 'i2c-sensor-bus'],
+    exposedCapabilities: [
+      'iso15693-shape',
+      'i2c-sensor-bus',
+      'native-silicon',
+    ],
     features: [
       'Dual TMP117 sensors',
       'Temperature monitoring',
@@ -496,6 +577,12 @@ export const PRODUCTS: Product[] = [
     formFactor: FormFactor.X_SERIES,
     categories: [ProductCategory.NFC, ProductCategory.SENSOR, ProductCategory.SECURE],
     compatibleChips: [ChipType.NTAG5_BOOST, ChipType.NTAG5_LINK],
+    requiredSourceCapabilities: ['iso15693-shape', 'i2c-sensor-bus'],
+    exposedCapabilities: [
+      'iso15693-shape',
+      'i2c-sensor-bus',
+      'native-silicon',
+    ],
     features: [
       'TMP112 temperature sensor',
       'Temperature monitoring',
