@@ -144,35 +144,53 @@ function createTransponder(
 }
 
 /**
- * Apex implants report ~84336 bytes total persistent memory via the
- * JavaCard Memory applet. Fidesmo wearables (rings, fobs, payment cards)
- * use the same Fidesmo platform but run on different secure-element
- * silicon with different storage capacity, so this is the discriminator.
+ * Persistent-memory baselines for JavaCard implants and wearables, as
+ * reported by the JavaCard Memory applet's `persistentTotal` field.
  *
- * Allow ±5% tolerance for chip-to-chip variation and any small overhead
- * the applet itself reports.
+ * These are silicon-level capacities and don't change as applets are
+ * installed (only `persistentFree` does). A small ±256-byte tolerance
+ * catches any reporting quirks without overlapping the two products
+ * — they're 83400 bytes apart.
+ *
+ * - Apex Flex          → 84336 bytes (0x00014970), runs on a smaller SE
+ * - flexSecure (P71)   → 167736 bytes (0x00028F38), NXP SmartMX3 P71
  */
 const APEX_PERSISTENT_TOTAL = 84336;
-const APEX_STORAGE_TOLERANCE = 0.05;
+const FLEXSECURE_PERSISTENT_TOTAL = 167736;
+const STORAGE_MATCH_TOLERANCE = 256;
 
-function isApexStorageSize(persistentTotal?: number): boolean {
+function storageMatches(
+  persistentTotal: number | undefined,
+  baseline: number,
+): boolean {
   if (persistentTotal === undefined) {
     return false;
   }
-  const delta = Math.abs(persistentTotal - APEX_PERSISTENT_TOTAL);
-  return delta / APEX_PERSISTENT_TOTAL <= APEX_STORAGE_TOLERANCE;
+  return Math.abs(persistentTotal - baseline) <= STORAGE_MATCH_TOLERANCE;
+}
+
+function isApexStorageSize(persistentTotal?: number): boolean {
+  return storageMatches(persistentTotal, APEX_PERSISTENT_TOTAL);
+}
+
+function isFlexSecureStorageSize(persistentTotal?: number): boolean {
+  return storageMatches(persistentTotal, FLEXSECURE_PERSISTENT_TOTAL);
 }
 
 /**
  * Determine implant name based on detected JavaCard applets, Fidesmo flag,
- * and total persistent storage:
+ * and total persistent storage. Storage size is the primary discriminator
+ * for products that share an applet platform but run on different silicon.
  *
- * - Payment applets → "Payment Card" (not an implant)
- * - Fidesmo + Apex storage signature → Apex
- * - Fidesmo without Apex storage signature → Fidesmo wearable (ring, fob,
- *   payment card, etc.) — distinguishable from Apex by silicon capacity
- * - JavaCard Memory without Fidesmo → flexSecure
- * - Otherwise → undefined (generic JavaCard)
+ * - Payment applets                          → "Payment Card" (not implant)
+ * - Fidesmo + Apex storage size              → "Apex"
+ * - Fidesmo + non-Apex storage               → "Fidesmo Wearable"
+ * - JavaCard Memory + flexSecure size        → "flexSecure"
+ * - JavaCard Memory + storage available but  → "JavaCard (P71-class)" /
+ *   doesn't match flexSecure                   "JavaCard (unknown)"
+ * - JavaCard Memory + no storage data        → "flexSecure" (legacy
+ *   fallback — preserves prior behaviour for offline / probe-failure cases)
+ * - Otherwise                                → undefined (generic JavaCard)
  */
 function getJavacardImplantName(
   installedApplets?: string[],
@@ -201,7 +219,17 @@ function getJavacardImplantName(
   }
 
   if (installedApplets.includes('JavaCard Memory')) {
-    return 'flexSecure';
+    if (isFlexSecureStorageSize(storageInfo?.persistentTotal)) {
+      return 'flexSecure';
+    }
+    if (storageInfo?.persistentTotal === undefined) {
+      // Storage probe failed — fall back to the prior behaviour rather
+      // than refusing to name the card.
+      return 'flexSecure';
+    }
+    // JavaCard Memory present but storage doesn't match flexSecure — some
+    // other developer card with the same applet installed.
+    return undefined;
   }
 
   return undefined;
