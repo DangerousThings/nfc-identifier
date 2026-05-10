@@ -45,8 +45,20 @@ function AnimatedSection({ children, delay, duration = 400, style }: AnimatedSec
   );
 }
 import type { ResultScreenProps } from '../types/navigation';
-import { matchChipToProducts, getMatchSummary, getDesfireEvMismatchWarning, getMifareClassicCapacityWarning } from '../services/matching';
-import { Product } from '../types/products';
+import { matchChipToProducts, getMatchSummary } from '../services/matching';
+import { Product, ProductMatch, MatchWarning } from '../types/products';
+
+/** Map a MatchWarning severity to its display colour. */
+function matchWarningColor(warning: MatchWarning): string {
+  switch (warning.severity) {
+    case 'info':
+      return DTColors.modeNormal;
+    case 'caution':
+      return DTColors.modeEmphasis;
+    case 'warning':
+      return DTColors.modeWarning;
+  }
+}
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
 import { getChipFamily } from '../types/detection';
 import { useDataConsent } from '../hooks/useDataConsent';
@@ -113,20 +125,20 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     return pNorm.includes(iNorm) || iNorm.includes(pNorm);
   };
 
-  // Build filtered product list (excluding the detected implant)
-  const displayProducts = useMemo(() => {
+  // Build filtered match list (excluding the detected implant)
+  const displayMatches = useMemo<ProductMatch[]>(() => {
     if (!matchResult) return [];
-    const all = [
+    const all: ProductMatch[] = [
       ...matchResult.exactMatches,
       ...matchResult.cloneTargets.filter(
-        p => !matchResult.exactMatches.find(e => e.id === p.id)
+        m => !matchResult.exactMatches.find(e => e.product.id === m.product.id),
       ),
     ];
-    return all.filter(p => !isScannedImplant(p));
+    return all.filter(m => !isScannedImplant(m.product));
   }, [matchResult, transponder]);
 
   // Calculate product count for animation timing
-  const productCount = displayProducts.length;
+  const productCount = displayMatches.length;
 
   // Animation delays - sequential flow
   const delays = useMemo(() => {
@@ -464,21 +476,18 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         )}
 
         {/* Product Matches Card - hide for payment devices */}
-        {transponder && displayProducts.length > 0 && !transponder.implantName?.includes('Payment Card') && (
+        {transponder && displayMatches.length > 0 && !transponder.implantName?.includes('Payment Card') && (
           <AnimatedSection delay={delays.compatibleLabel}>
             <DTLabel mode='emphasis' primaryText={transponder.implantName ? "Similar Implants" : "Compatible Implants"} style={{ marginBottom: 25, }} size="large" animated={false} />
           </AnimatedSection>
         )}
 
         {/* Individual Product Cards - staggered */}
-        {transponder && displayProducts.length > 0 && !transponder.implantName?.includes('Payment Card') && (
-          displayProducts.map((product, index) => (
+        {transponder && displayMatches.length > 0 && !transponder.implantName?.includes('Payment Card') && (
+          displayMatches.map(({product, warnings}, index) => (
             <AnimatedSection key={product.id} delay={delays.productBase + (index * delays.productIncrement)}>
               <DTCard mode='emphasis' title={product.name} style={{ marginBottom: 25 }}>
                 <View style={styles.productHeader}>
-                  {/* <Text variant="titleMedium" style={styles.productName}>
-                    {product.name}
-                  </Text> */}
                   <DTChip
                     style={styles.formFactorChip}
                     textStyle={styles.formFactorChipText}>
@@ -499,19 +508,17 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                   </Text>
                 )}
 
-                {/* DESFire EV mismatch warning */}
-                {getDesfireEvMismatchWarning(transponder.type, product) && (
-                  <Text variant="bodySmall" style={styles.evMismatchWarning}>
-                    ⚠️ {getDesfireEvMismatchWarning(transponder.type, product)}
+                {warnings.map(warning => (
+                  <Text
+                    key={warning.code}
+                    variant="bodySmall"
+                    style={[
+                      styles.matchWarning,
+                      {color: matchWarningColor(warning)},
+                    ]}>
+                    ⚠️ {warning.message}
                   </Text>
-                )}
-
-                {/* MIFARE Classic 4K → 1K capacity warning */}
-                {getMifareClassicCapacityWarning(transponder.type, product) && (
-                  <Text variant="bodySmall" style={styles.evMismatchWarning}>
-                    ⚠️ {getMifareClassicCapacityWarning(transponder.type, product)}
-                  </Text>
-                )}
+                ))}
 
                 <View style={styles.productFeatures}>
                   {product.features.slice(0, 3).map((feature, idx) => (
@@ -550,7 +557,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                   <Text variant="bodySmall" style={styles.familyMatchesLabel}>
                     Related products in the same chip family:
                   </Text>
-                  {matchResult.familyMatches.slice(0, 2).map(product => (
+                  {matchResult.familyMatches.slice(0, 2).map(({product}) => (
                     <Text key={product.id} variant="bodySmall" style={styles.familyMatchItem}>
                       • {product.name}
                     </Text>
@@ -954,6 +961,12 @@ const styles = StyleSheet.create({
   evMismatchWarning: {
     color: DTColors.modeEmphasis,
     backgroundColor: 'rgba(255, 255, 0, 0.1)',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  matchWarning: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     padding: 8,
     borderRadius: 4,
     marginBottom: 8,

@@ -10,6 +10,5 @@ export {
   getCloneTargetsForChip,
   canCloneToProduct,
   getDesfireEvLevel,
-  getDesfireEvMismatchWarning,
-  getMifareClassicCapacityWarning,
 } from './matcher';
+export {buildMatchWarnings} from './warnings';

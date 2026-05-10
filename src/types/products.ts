@@ -115,15 +115,48 @@ export interface Product {
 }
 
 /**
+ * Severity tier for a match warning. Drives the colour the UI uses to render
+ * the warning chip (cyan / yellow / red).
+ */
+export type MatchWarningSeverity = 'info' | 'caution' | 'warning';
+
+/**
+ * A structured warning attached to a product match.
+ *
+ * Replaces the previous pattern of calling per-warning helper functions
+ * inline from the UI. All warning generation now happens in
+ * `services/matching/warnings.ts` so the matcher returns ready-to-render
+ * data and the UI is dumb-but-consistent.
+ */
+export interface MatchWarning {
+  severity: MatchWarningSeverity;
+  /** Stable code for telemetry / tests, e.g. 'desfire-ev-mismatch'. */
+  code: string;
+  message: string;
+}
+
+/**
+ * A matched product with its associated warnings.
+ *
+ * Each entry returned by the matcher is a Product wrapped together with
+ * any warnings the matching pipeline produced for that combination of
+ * scanned chip + product.
+ */
+export interface ProductMatch {
+  product: Product;
+  warnings: MatchWarning[];
+}
+
+/**
  * Result of product matching
  */
 export interface MatchResult {
   /** Products that use the exact same chip */
-  exactMatches: Product[];
+  exactMatches: ProductMatch[];
   /** Products that can receive cloned data from this chip */
-  cloneTargets: Product[];
+  cloneTargets: ProductMatch[];
   /** Products in the same chip family */
-  familyMatches: Product[];
+  familyMatches: ProductMatch[];
   /** Is this chip cloneable at all? */
   isCloneable: boolean;
   /** Note about cloneability */

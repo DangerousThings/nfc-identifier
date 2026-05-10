@@ -5,12 +5,13 @@
  */
 
 import { ChipType, getChipFamily, CHIP_CLONEABILITY, ChipFamily, Transponder } from '../../types/detection';
-import { ChipCapability, MatchResult, Product, DesfireEvLevel } from '../../types/products';
+import { ChipCapability, MatchResult, Product, ProductMatch, DesfireEvLevel } from '../../types/products';
 import {
   PRODUCTS,
   getChipProductMap,
   CONVERSION_SERVICE_URL,
 } from '../../data/products';
+import {buildMatchWarnings} from './warnings';
 
 /**
  * Check whether a source tag's capabilities satisfy a product's required set.
@@ -82,25 +83,33 @@ export function matchChipToProducts(chip: Transponder): MatchResult {
     ...legacyMatches,
   ];
 
+  // Helper: wrap a Product into a ProductMatch by collecting its warnings.
+  const wrap = (product: Product): ProductMatch => ({
+    product,
+    warnings: buildMatchWarnings(chip, product),
+  });
+
   // Separate exact matches from clone targets
-  const exactMatches: Product[] = [];
-  const cloneTargets: Product[] = [];
+  const exactMatches: ProductMatch[] = [];
+  const cloneTargets: ProductMatch[] = [];
 
   for (const product of directMatches) {
     if (product.exactMatch) {
-      exactMatches.push(product);
+      exactMatches.push(wrap(product));
     }
     if (product.canReceiveClone && cloneability?.cloneable) {
       if ((product.name.startsWith("xMagic") || product.name.startsWith("xM1") || product.name.startsWith("flexM1")) && chip.rawData.uid.replaceAll(":", "").length / 2 !== 4) {
         // Skip 4-byte-UID-only magic cards when the source UID is longer
       } else {
-        cloneTargets.push(product);
+        cloneTargets.push(wrap(product));
       }
     }
   }
 
   // Find products in the same chip family
-  const familyMatches = findFamilyMatches(chipType, chipFamily, directMatches);
+  const familyMatches = findFamilyMatches(chipType, chipFamily, directMatches).map(
+    wrap,
+  );
 
   // Determine if conversion is recommended
   // Conversion is recommended when:
@@ -152,12 +161,12 @@ function findFamilyMatches(
  */
 export function getMatchSummary(result: MatchResult, chipName: string): string {
   if (result.exactMatches.length > 0) {
-    const names = result.exactMatches.map(p => p.name).join(', ');
+    const names = result.exactMatches.map(m => m.product.name).join(', ');
     return `Your ${chipName} is compatible with: ${names}`;
   }
 
   if (result.cloneTargets.length > 0) {
-    const names = result.cloneTargets.map(p => p.name).join(', ');
+    const names = result.cloneTargets.map(m => m.product.name).join(', ');
     return `Your ${chipName} data can be cloned to: ${names}`;
   }
 
@@ -234,57 +243,4 @@ export function getDesfireEvLevel(chipType: ChipType): DesfireEvLevel | null {
   }
 }
 
-/**
- * IDs of products that only support MIFARE Classic 1K (not 4K)
- */
-const MIFARE_1K_ONLY_PRODUCTS = new Set(['xmagic', 'xm1', 'flexm1-v2']);
-
-/**
- * Check if a scanned 4K card is being matched to a 1K-only implant
- * Returns warning message if capacity mismatch, null if no issue
- */
-export function getMifareClassicCapacityWarning(
-  chipType: ChipType,
-  product: Product,
-): string | null {
-  // Only applies to MIFARE Classic 4K cards
-  if (chipType !== ChipType.MIFARE_CLASSIC_4K) {
-    return null;
-  }
-
-  // Only warn for 1K-only implants
-  if (!MIFARE_1K_ONLY_PRODUCTS.has(product.id)) {
-    return null;
-  }
-
-  return 'This implant has 1K memory only - might not have capacity to clone your 4K card.';
-}
-
-/**
- * Check if there's a DESFire EV mismatch between chip and product
- * Returns warning message if mismatch, null if no issue
- */
-export function getDesfireEvMismatchWarning(
-  chipType: ChipType,
-  product: Product,
-): string | null {
-  const chipEvLevel = getDesfireEvLevel(chipType);
-  const productEvLevel = product.desfireEvLevel;
-
-  // Not a DESFire chip or product doesn't have EV level
-  if (chipEvLevel === null || productEvLevel === undefined) {
-    return null;
-  }
-
-  // Perfect match
-  if (chipEvLevel === productEvLevel) {
-    return null;
-  }
-
-  // Mismatch - warn user
-  if (chipEvLevel < productEvLevel) {
-    return `Your card uses DESFire EV${chipEvLevel}, but this implant uses EV${productEvLevel}. Some newer features may not be compatible with your existing system.`;
-  } else {
-    return `Your card uses DESFire EV${chipEvLevel}, but this implant uses EV${productEvLevel}. This should work, but you won't have access to EV${chipEvLevel} features.`;
-  }
-}
+// Per-pair warning generation moved to services/matching/warnings.ts (M8).
