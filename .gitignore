@@ -182,3 +182,6 @@ temp/
 # pnpm-lock.yaml
 .worktrees/
 AN10833.pdf
+
+# Motion / accelerometer data uploads (local, not for VCS)
+accel_data/

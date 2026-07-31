@@ -44,13 +44,16 @@ import {
   CHIP_NAMES,
   CHIP_MEMORY_SIZES,
   CHIP_CLONEABILITY,
+  type CplcInfo,
+  type DetectedCredential,
+  type IdentityEvidence,
 } from '../../types/detection';
 import {detectNtag, mightBeNtag, detectImplantNameInMemory} from './ntag';
 import {
   detectMifareClassic,
   isMifareClassicSak,
   hasIsoDepCapability,
-  detectSakSwap,
+  detectCardModes,
   probeClassicGetVersion,
   matchPlusHistoricalSignature,
 } from './mifare';
@@ -71,6 +74,9 @@ import {
   getJavacardStorageInfo,
 } from './javacard';
 import {deriveCapabilities} from './capabilities';
+import {runCredentialSweep, credentialsForJavaCard} from './credentials';
+import {matchDtHistoricalSignature} from './dtproducts';
+import type {IsdProbeResult} from './cplc';
 import * as fixtureRecorder from './fixtureRecorder';
 import {isFixtureCaptureEnabled} from '../../hooks/useFixtureCapture';
 
@@ -86,7 +92,7 @@ function createTransponder(
     memorySize?: number;
     versionInfo?: Transponder['versionInfo'];
     confidence?: Transponder['confidence'];
-    sakSwapInfo?: Transponder['sakSwapInfo'];
+    cardModeInfo?: Transponder['cardModeInfo'];
     implantName?: string;
     temperature?: Transponder['temperature'];
     temperature2?: Transponder['temperature2'];
@@ -94,14 +100,18 @@ function createTransponder(
     storageInfo?: Transponder['storageInfo'];
     implementation?: Transponder['implementation'];
     implementationByte?: number;
+    credentials?: DetectedCredential[];
+    cplc?: CplcInfo;
+    identityEvidence?: IdentityEvidence[];
   } = {},
 ): Transponder {
   const cloneInfo = CHIP_CLONEABILITY[type];
 
-  // Run SAK swap detection if we have SAK
-  let sakSwapInfo = options.sakSwapInfo;
-  if (!sakSwapInfo && rawData.sak !== undefined) {
-    sakSwapInfo = detectSakSwap(
+  // Multi-mode / clone-suspect heuristics — includes the keyless mirrored
+  // WUP-SAK check (0x88/0x98 wake-up ⇒ likely magic card).
+  let cardModeInfo = options.cardModeInfo;
+  if (!cardModeInfo && rawData.sak !== undefined) {
+    cardModeInfo = detectCardModes(
       rawData.sak,
       rawData.atqa,
       rawData.historicalBytes,
@@ -111,7 +121,24 @@ function createTransponder(
   const capabilities = deriveCapabilities({
     type,
     implementation: options.implementation,
+    credentials: options.credentials,
   });
+
+  // Official DT product signature (ATS historical bytes). Checked centrally so
+  // every branch benefits — a DT card or implant can arrive via the DESFire,
+  // JavaCard, or EV3C paths. A positive match:
+  //  - raises confidence (we've positively identified the exact product),
+  //  - flags the card as official (drives the "DT" badge),
+  //  - names the implant (e.g. flexSecure) when the branch didn't already —
+  //    this is the historical-byte tiebreaker that separates flexSecure from
+  //    a bare J3R180.
+  const dtMatch = matchDtHistoricalSignature(rawData.historicalBytes);
+  const confidence: Transponder['confidence'] = dtMatch
+    ? 'high'
+    : (options.confidence ?? 'medium');
+  const implantName =
+    options.implantName ??
+    (dtMatch?.kind === 'implant' ? dtMatch.name : undefined);
 
   return {
     type,
@@ -129,13 +156,17 @@ function createTransponder(
       techTypes: rawData.techTypes,
     },
     versionInfo: options.versionInfo,
-    sakSwapInfo,
-    implantName: options.implantName,
+    cardModeInfo,
+    implantName,
     temperature: options.temperature,
     temperature2: options.temperature2,
     installedApplets: options.installedApplets,
     storageInfo: options.storageInfo,
-    confidence: options.confidence ?? 'medium',
+    credentials: options.credentials,
+    cplc: options.cplc,
+    identityEvidence: options.identityEvidence,
+    dtProduct: dtMatch ? {name: dtMatch.name, kind: dtMatch.kind} : undefined,
+    confidence,
     detectedOn: Platform.OS as 'ios' | 'android',
     implementation: options.implementation,
     implementationByte: options.implementationByte,
@@ -144,19 +175,20 @@ function createTransponder(
 }
 
 /**
- * Persistent-memory baselines for JavaCard implants and wearables, as
- * reported by the JavaCard Memory applet's `persistentTotal` field.
+ * Persistent-memory baselines reported by the JavaCard Memory applet's
+ * `persistentTotal` field.
  *
  * These are silicon-level capacities and don't change as applets are
  * installed (only `persistentFree` does). A small ±256-byte tolerance
- * catches any reporting quirks without overlapping the two products
- * — they're 83400 bytes apart.
+ * catches reporting quirks.
  *
- * - Apex Flex          → 84336 bytes (0x00014970), runs on a smaller SE
- * - flexSecure (P71)   → 167736 bytes (0x00028F38), NXP SmartMX3 P71
+ * - Apex        → 84336 bytes (0x00014970)
+ * - J3R180      → 167736 bytes (0x00028F38); note this is *also* what a
+ *                 flexSecure reports, because a flexSecure **is** a J3R180.
+ *                 Storage size therefore cannot separate the two.
  */
 const APEX_PERSISTENT_TOTAL = 84336;
-const FLEXSECURE_PERSISTENT_TOTAL = 167736;
+const J3R180_PERSISTENT_TOTAL = 167736;
 const STORAGE_MATCH_TOLERANCE = 256;
 
 function storageMatches(
@@ -173,66 +205,176 @@ function isApexStorageSize(persistentTotal?: number): boolean {
   return storageMatches(persistentTotal, APEX_PERSISTENT_TOTAL);
 }
 
-function isFlexSecureStorageSize(persistentTotal?: number): boolean {
-  return storageMatches(persistentTotal, FLEXSECURE_PERSISTENT_TOTAL);
+function isJ3R180StorageSize(persistentTotal?: number): boolean {
+  return storageMatches(persistentTotal, J3R180_PERSISTENT_TOTAL);
+}
+
+/** What `getJavacardImplantName` concluded, and the evidence behind it. */
+interface ImplantIdentity {
+  name?: string;
+  evidence: IdentityEvidence[];
 }
 
 /**
- * Determine implant name based on detected JavaCard applets, Fidesmo flag,
- * and total persistent storage. Storage size is the primary discriminator
- * for products that share an applet platform but run on different silicon.
+ * Determine what to call a JavaCard, and record why.
  *
- * - Payment applets                          → "Payment Card" (not implant)
- * - Fidesmo + Apex storage size              → "Apex"
- * - Fidesmo + non-Apex storage               → "Fidesmo Wearable"
- * - JavaCard Memory + flexSecure size        → "flexSecure"
- * - JavaCard Memory + storage available but  → "JavaCard (P71-class)" /
- *   doesn't match flexSecure                   "JavaCard (unknown)"
- * - JavaCard Memory + no storage data        → "flexSecure" (legacy
- *   fallback — preserves prior behaviour for offline / probe-failure cases)
- * - Otherwise                                → undefined (generic JavaCard)
+ * The important constraint is what the available signals *can't* do. CPLC IC
+ * Type `0xD321` (J3R180) is shared by both the Apex and the flexSecure, and
+ * a flexSecure reports the same 167736-byte `persistentTotal` as any other
+ * J3R180 — or none at all, when the memory applet isn't installed. So:
+ *
+ * - Apex is identifiable: 84336 bytes *plus* the Fidesmo fingerprint, two
+ *   independent signals agreeing.
+ * - flexSecure is **not** identifiable from these signals alone. We report
+ *   the silicon ("J3R180") and let the product matcher offer flexSecure as
+ *   one of several J3R180 products, rather than asserting it here.
+ *
+ * The `historical-bytes` evidence slot is reserved for the check that will
+ * eventually break that tie.
+ *
+ * Silicon identity (J3R180 / J3R452, from CPLC) is surfaced in the header,
+ * not here — this function names *products*, and returns undefined when only
+ * the part is known.
+ *
+ * - Payment applets                → "<Network> Payment Card" (not an implant)
+ * - Fidesmo + Apex storage         → "Apex"
+ * - Fidesmo + other storage        → "Fidesmo Wearable"
+ * - CPLC IC type known             → undefined (silicon shown in header)
+ * - JavaCard Memory + J3R180 size  → "J3R180" only when CPLC couldn't be read
+ *   (no header identity otherwise) — still not a product claim
+ * - Otherwise                      → undefined (generic JavaCard)
  */
-function getJavacardImplantName(
+export function getJavacardImplantName(
   installedApplets?: string[],
   isFidesmo?: boolean,
   storageInfo?: Transponder['storageInfo'],
-): string | undefined {
-  if (!installedApplets || installedApplets.length === 0) {
-    return undefined;
+  icTypeName?: string,
+): ImplantIdentity {
+  const evidence: IdentityEvidence[] = [];
+  const applets = installedApplets ?? [];
+
+  if (applets.length === 0 && !icTypeName) {
+    return {evidence};
   }
 
-  if (installedApplets.includes('Payment (PPSE)')) {
-    const network = installedApplets.find(a =>
+  if (applets.includes('Payment (PPSE)')) {
+    const network = applets.find(a =>
       ['Visa', 'Mastercard', 'American Express', 'Discover', 'Maestro'].includes(
         a,
       ),
     );
-    return network ? `${network} Payment Card` : 'Payment Card';
+    evidence.push({
+      source: 'applet-set',
+      matched: true,
+      note: `Payment applet present${network ? ` (${network})` : ''}`,
+    });
+    return {
+      name: network ? `${network} Payment Card` : 'Payment Card',
+      evidence,
+    };
   }
 
-  const fidesmoDetected = isFidesmo || installedApplets.includes('Fidesmo');
+  const persistentTotal = storageInfo?.persistentTotal;
+  const fidesmoDetected = isFidesmo || applets.includes('Fidesmo');
+
+  if (icTypeName) {
+    evidence.push({
+      source: 'cplc-ic-type',
+      matched: true,
+      note: `CPLC IC Type identifies ${icTypeName} silicon`,
+    });
+  }
+
   if (fidesmoDetected) {
-    if (isApexStorageSize(storageInfo?.persistentTotal)) {
-      return 'Apex';
+    evidence.push({
+      source: 'applet-set',
+      matched: true,
+      note: 'Fidesmo fingerprint present',
+    });
+
+    if (isApexStorageSize(persistentTotal)) {
+      evidence.push({
+        source: 'persistent-total',
+        matched: true,
+        note: `${persistentTotal} bytes matches Apex`,
+      });
+      return {name: 'Apex', evidence};
     }
-    return 'Fidesmo Wearable';
+
+    evidence.push({
+      source: 'persistent-total',
+      matched: false,
+      note:
+        persistentTotal === undefined
+          ? 'Storage size unavailable'
+          : `${persistentTotal} bytes does not match Apex`,
+    });
+    return {name: 'Fidesmo Wearable', evidence};
   }
 
-  if (installedApplets.includes('JavaCard Memory')) {
-    if (isFlexSecureStorageSize(storageInfo?.persistentTotal)) {
-      return 'flexSecure';
+  // No Fidesmo. When CPLC named the silicon, that identity is surfaced in
+  // the header (via `cplc.icTypeName`), not as an implant name — the implant
+  // row is for actual DT/VK products (Apex, flexSecure, ...), not raw part
+  // numbers. So decline to name a product here.
+  if (icTypeName) {
+    return {evidence};
+  }
+
+  if (applets.includes('JavaCard Memory')) {
+    if (isJ3R180StorageSize(persistentTotal)) {
+      evidence.push({
+        source: 'persistent-total',
+        matched: true,
+        note: `${persistentTotal} bytes matches J3R180 (shared by flexSecure and other J3R180 cards)`,
+      });
+      evidence.push({
+        source: 'historical-bytes',
+        matched: false,
+        note: 'Not yet implemented — would disambiguate flexSecure',
+      });
+      return {name: 'J3R180', evidence};
     }
-    if (storageInfo?.persistentTotal === undefined) {
-      // Storage probe failed — fall back to the prior behaviour rather
-      // than refusing to name the card.
-      return 'flexSecure';
-    }
-    // JavaCard Memory present but storage doesn't match flexSecure — some
-    // other developer card with the same applet installed.
+
+    evidence.push({
+      source: 'persistent-total',
+      matched: false,
+      note:
+        persistentTotal === undefined
+          ? 'Storage size unavailable — cannot identify product'
+          : `${persistentTotal} bytes matches no known product`,
+    });
+    return {evidence};
+  }
+
+  return {evidence};
+}
+
+/**
+ * The MIFARE Classic chip type a SAK advertises, or `undefined` if it
+ * advertises none. Used to record a Classic credential on cards whose
+ * headline identity comes from elsewhere (DESFire, JavaCard).
+ */
+function classicChipTypeFromSak(sak: number | undefined): ChipType | undefined {
+  if (sak === undefined || !isMifareClassicSak(sak)) {
     return undefined;
   }
+  return detectMifareClassic(sak).chipType;
+}
 
-  return undefined;
+/**
+ * Convert a CPLC record from the detection layer into the shape carried on
+ * the Transponder, folding in the resolved names.
+ */
+function toCplcInfo(probe: IsdProbeResult): CplcInfo | undefined {
+  if (!probe.cplc) {
+    return undefined;
+  }
+  return {
+    ...probe.cplc,
+    icTypeName: probe.icTypeName,
+    fabricatorName: probe.fabricatorName,
+    osName: probe.osName,
+  };
 }
 
 /** Progress callback type for detection updates */
@@ -338,13 +480,81 @@ async function runMifareClassicTechBranch(
   const probe = await probeClassicGetVersion();
   const final = applyClassicProbe(chipType, memorySize, probe);
 
+  return finishClassicBranch(rawData, final);
+}
+
+/**
+ * Shared tail for both MIFARE Classic branches.
+ *
+ * Runs the credential sweep when the card can carry ISO-DEP traffic, then
+ * builds the transponder. Split out so the tech-type and SAK branches can't
+ * drift apart — they need identical post-probe handling.
+ */
+async function finishClassicBranch(
+  rawData: RawTagData,
+  final: ReturnType<typeof applyClassicProbe>,
+): Promise<DetectionResult> {
+  const canSendApdus =
+    rawData.techTypes.some(t => t.includes('IsoDep')) ||
+    (rawData.sak !== undefined && hasIsoDepCapability(rawData.sak));
+
+  if (!canSendApdus) {
+    // Plain Classic with no Layer 4 — nothing further to probe over ISO-DEP.
+    // A mirrored WUP-SAK (0x88/0x98) is already flagged by `detectCardModes`
+    // inside `createTransponder`, keylessly.
+    return {
+      success: true,
+      transponder: createTransponder(final.chipType, rawData, {
+        memorySize: final.memorySize,
+        confidence: 'high',
+        implementation: final.implementation,
+        implementationByte: final.implementationByte,
+      }),
+    };
+  }
+
+  // Only claim a Classic credential when the card is actually still typed as
+  // Classic. `applyClassicProbe` may have retyped it to MIFARE_PLUS_EV1, in
+  // which case the Plus signature match inside the sweep records it properly
+  // and labelling it "mifare-classic" here would both mislabel it and
+  // duplicate that entry.
+  const isStillClassic =
+    final.chipType === ChipType.MIFARE_CLASSIC_1K ||
+    final.chipType === ChipType.MIFARE_CLASSIC_4K ||
+    final.chipType === ChipType.MIFARE_CLASSIC_MINI;
+
+  const sweep = await runCredentialSweep({
+    knownClassicChipType: isStillClassic ? final.chipType : undefined,
+    classicImplementation: final.implementation,
+    historicalBytes: rawData.historicalBytes,
+    sak: rawData.sak,
+  });
+
+  // Classic + DESFire EV3 → DESFire EV3C ("C" for Classic). The Classic
+  // credential survives in `credentials` and drives the Emulation Supported
+  // display; the headline chip type becomes the EV3C.
+  const chipType = sweep.promotedChipType ?? final.chipType;
+  const isPromoted = sweep.promotedChipType !== undefined;
+
+  // An ISD that answers proves a smart card substrate even when the Layer 3
+  // GetVersion probe came back inconclusive (common on iOS).
+  const implementation =
+    final.implementation === 'native' && sweep.isd.isdSelected
+      ? 'javacard_emulation'
+      : final.implementation;
+
   return {
     success: true,
-    transponder: createTransponder(final.chipType, rawData, {
-      memorySize: final.memorySize,
+    transponder: createTransponder(chipType, rawData, {
+      memorySize: isPromoted
+        ? (sweep.desfireStorageSize ?? final.memorySize)
+        : final.memorySize,
+      versionInfo: isPromoted ? sweep.desfireVersionInfo : undefined,
       confidence: 'high',
-      implementation: final.implementation,
+      implementation,
       implementationByte: final.implementationByte,
+      credentials: sweep.credentials,
+      cplc: toCplcInfo(sweep.isd),
     }),
   };
 }
@@ -372,15 +582,7 @@ async function runMifareClassicSakBranch(
     const probe = await probeClassicGetVersion();
     const final = applyClassicProbe(result.chipType, result.memorySize, probe);
 
-    return {
-      success: true,
-      transponder: createTransponder(final.chipType, rawData, {
-        memorySize: final.memorySize,
-        confidence: 'high',
-        implementation: final.implementation,
-        implementationByte: final.implementationByte,
-      }),
-    };
+    return finishClassicBranch(rawData, final);
   }
   return null;
 }
@@ -539,19 +741,141 @@ async function runIso14443_4Branch(
       }
     }
 
+    // A card whose SAK also advertises MIFARE Classic carries a Classic
+    // credential alongside the DESFire one. This is the common Android path
+    // for SAK 0x28 — the tag exposes IsoDep, so it lands here rather than in
+    // the Classic branches, and it's where the EV3C promotion has to happen.
+    const classicFromSak =
+      rawData.sak !== undefined && isMifareClassicSak(rawData.sak)
+        ? detectMifareClassic(rawData.sak)
+        : undefined;
+
+    // Sweep for the other credentials this card may carry. DESFire has
+    // already been probed, so hand the result in rather than replaying it.
+    onProgress?.('Checking for GlobalPlatform ISD...');
+    const sweep = await runCredentialSweep({
+      knownClassicChipType: classicFromSak?.chipType,
+      // A native EV3C's Classic credential runs on the same genuine NXP
+      // silicon as its DESFire one, so inherit the substrate GetVersion
+      // reported rather than leaving it unknown.
+      classicImplementation: desfireResult.implementation,
+      knownDesfire: {
+        chipType: desfireResult.chipType,
+        implementation: desfireResult.implementation,
+        implementationByte: desfireResult.implementationByte,
+      },
+      historicalBytes: rawData.historicalBytes,
+      sak: rawData.sak,
+    });
+
+    const implementation =
+      desfireResult.implementation === 'native' && sweep.isd.isdSelected
+        ? 'javacard_emulation'
+        : desfireResult.implementation;
+
+    // Headline identity. Precedence:
+    //   1. A card that answered a GlobalPlatform ISD is a JavaCard smart card
+    //      hosting whatever it emulated. Its silicon (J3R452 / J3R180, via
+    //      CPLC) is the real identity — even the EV3-shape (Classic + DESFire
+    //      EV3) is emulation here, so every credential is demoted to
+    //      `sweep.credentials` and the DESFire GetVersion result is not the
+    //      headline.
+    //   2. No ISD but Classic + DESFire EV3 → native DESFire EV3C, a real
+    //      combined NXP part.
+    //   3. Otherwise, keep what GetVersion reported (native DESFire, Plus,
+    //      NTAG DNA, MIFARE 2GO).
+    let chipType: ChipType;
+    if (sweep.isd.isdSelected) {
+      chipType = ChipType.JCOP4;
+    } else if (sweep.promotedChipType) {
+      chipType = sweep.promotedChipType;
+    } else {
+      chipType = desfireResult.chipType;
+    }
+
+    // The emulated credential is now surfaced via `credentials`, so drop the
+    // storage/version of that credential from the headline when the card is
+    // really a JavaCard — those describe the emulation, not the silicon.
+    const isJavaCardHeadline = chipType === ChipType.JCOP4;
+
+    // When the headline is a JavaCard, render it as fully as the pure-JavaCard
+    // branch does: probe its installed applets and persistent storage, and
+    // keep the known DESFire AIDs enumerated from the emulated DESFire
+    // credential (e.g. HID SEOS, Gallagher). The GP applets (OpenPGP, FIDO,
+    // ...) come from the JavaCard probe; the two lists are merged, deduped.
+    let installedApplets = desfireAppLabels;
+    let storageInfo: Transponder['storageInfo'];
+    if (isJavaCardHeadline) {
+      onProgress?.('Probing JavaCard applets...');
+      const jc = await detectJavaCard();
+      const merged = [
+        ...(desfireAppLabels ?? []),
+        ...(jc.installedApplets ?? []),
+      ];
+      installedApplets =
+        merged.length > 0 ? Array.from(new Set(merged)) : undefined;
+      try {
+        const mem = await getJavacardStorageInfo();
+        if (mem) {
+          storageInfo = mem;
+        }
+      } catch {
+        // Storage read is best-effort.
+      }
+    }
+
     return {
       success: true,
-      transponder: createTransponder(desfireResult.chipType, rawData, {
-        memorySize: desfireResult.storageSize,
-        versionInfo: desfireResult.versionInfo,
+      transponder: createTransponder(chipType, rawData, {
+        memorySize: isJavaCardHeadline ? undefined : desfireResult.storageSize,
+        versionInfo: isJavaCardHeadline ? undefined : desfireResult.versionInfo,
         confidence:
           desfireResult.chipType === ChipType.DESFIRE_UNKNOWN
             ? 'medium'
             : 'high',
         implantName,
-        installedApplets: desfireAppLabels,
-        implementation: desfireResult.implementation,
+        installedApplets,
+        storageInfo,
+        implementation,
         implementationByte: desfireResult.implementationByte,
+        credentials: sweep.credentials,
+        cplc: toCplcInfo(sweep.isd),
+      }),
+    };
+  }
+
+  // 4a½: An official DT historical-byte signature is a definitive JavaCard
+  // product ID. Check it before the weak ATS/SAK heuristics in 4b, which would
+  // otherwise mislabel a bare (non-emulating) DT JavaCard — SAK 0x20, ATQA
+  // 0x0004 — as NTAG 424 DNA and never run the reliable ISD/CPLC probe.
+  // (DT cards that *emulate* a credential answer GetVersion and are handled by
+  // 4a above; central `createTransponder` stamps `dtProduct` in both cases.)
+  if (matchDtHistoricalSignature(rawData.historicalBytes)) {
+    onProgress?.('Identifying DT smart card...');
+    const jc = await detectJavaCard();
+    let storageInfo: Transponder['storageInfo'];
+    try {
+      const mem = await getJavacardStorageInfo();
+      if (mem) {
+        storageInfo = mem;
+      }
+    } catch {
+      // Storage read is best-effort.
+    }
+    return {
+      success: true,
+      transponder: createTransponder(ChipType.JCOP4, rawData, {
+        confidence: 'high',
+        installedApplets: jc.installedApplets,
+        storageInfo,
+        cplc: jc.cplc
+          ? {
+              ...jc.cplc,
+              icTypeName: jc.icTypeName,
+              fabricatorName: jc.fabricatorName,
+              osName: jc.osName,
+            }
+          : undefined,
       }),
     };
   }
@@ -579,11 +903,24 @@ async function runIso14443_4Branch(
   const plusMatch = matchPlusHistoricalSignature(rawData.historicalBytes);
   if (plusMatch) {
     console.log('[Detector] Plus signature match:', plusMatch);
+
+    // DESFire GetVersion already failed above, so skip re-probing it; the
+    // sweep here is for the ISD/CPLC and to record the Plus credential.
+    onProgress?.('Checking for GlobalPlatform ISD...');
+    const sweep = await runCredentialSweep({
+      historicalBytes: rawData.historicalBytes,
+      sak: rawData.sak,
+      skipDesfireProbe: true,
+    });
+
     return {
       success: true,
       transponder: createTransponder(plusMatch.chipType, rawData, {
         memorySize: plusMatch.memoryK * 1024,
         confidence: 'high',
+        implementation: sweep.isd.isdSelected ? 'javacard_emulation' : undefined,
+        credentials: sweep.credentials,
+        cplc: toCplcInfo(sweep.isd),
       }),
     };
   }
@@ -604,19 +941,36 @@ async function runIso14443_4Branch(
       } catch {
         // Storage read is best-effort
       }
-      const implantName = getJavacardImplantName(
+      const identity = getJavacardImplantName(
         jcResult.installedApplets,
         jcResult.isFidesmo,
         storageInfo,
+        jcResult.icTypeName,
       );
       return {
         success: true,
         transponder: createTransponder(jcResult.chipType, rawData, {
           confidence:
             jcResult.chipType === ChipType.JCOP4 ? 'high' : 'medium',
-          implantName,
+          implantName: identity.name,
+          identityEvidence: identity.evidence,
           installedApplets: jcResult.installedApplets,
           storageInfo,
+          credentials: credentialsForJavaCard({
+            sak: rawData.sak,
+            classicChipType: classicChipTypeFromSak(rawData.sak),
+            icTypeName: jcResult.icTypeName,
+            osName: jcResult.osName,
+            isdSelected: jcResult.isdSelected ?? false,
+          }),
+          cplc: jcResult.cplc
+            ? {
+                ...jcResult.cplc,
+                icTypeName: jcResult.icTypeName,
+                fabricatorName: jcResult.fabricatorName,
+                osName: jcResult.osName,
+              }
+            : undefined,
         }),
       };
     }
@@ -650,18 +1004,35 @@ async function runIso14443_4Branch(
     } catch {
       // Storage read is best-effort
     }
-    const implantName = getJavacardImplantName(
+    const identity = getJavacardImplantName(
       jcFallback.installedApplets,
       jcFallback.isFidesmo,
       fallbackStorageInfo,
+      jcFallback.icTypeName,
     );
     return {
       success: true,
       transponder: createTransponder(jcFallback.chipType, rawData, {
         confidence: 'medium',
-        implantName,
+        implantName: identity.name,
+        identityEvidence: identity.evidence,
         installedApplets: jcFallback.installedApplets,
         storageInfo: fallbackStorageInfo,
+        credentials: credentialsForJavaCard({
+          sak: rawData.sak,
+          classicChipType: classicChipTypeFromSak(rawData.sak),
+          icTypeName: jcFallback.icTypeName,
+          osName: jcFallback.osName,
+          isdSelected: jcFallback.isdSelected ?? false,
+        }),
+        cplc: jcFallback.cplc
+          ? {
+              ...jcFallback.cplc,
+              icTypeName: jcFallback.icTypeName,
+              fabricatorName: jcFallback.fabricatorName,
+              osName: jcFallback.osName,
+            }
+          : undefined,
       }),
     };
   }

@@ -1,19 +1,19 @@
-import React, {useState, useCallback} from 'react';
-import {StyleSheet, View, Alert} from 'react-native';
-import {Text, Surface} from 'react-native-paper';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {DTButton, DTColors, DTSwitch} from '@dangerousthings/react-native';
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, View, Alert } from 'react-native';
+import { Text, Surface } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DTButton, DTColors, DTSwitch } from '@dangerousthings/react-native';
 import * as Clipboard from 'expo-clipboard';
-import {useDataConsent} from '../hooks/useDataConsent';
-import {useFixtureCapture} from '../hooks/useFixtureCapture';
-import {sampleCollector} from '../services/motion';
-import {VersionInfo} from '../components/VersionInfo';
-import type {HomeScreenProps} from '../types/navigation';
+import { useDataConsent } from '../hooks/useDataConsent';
+import { useFixtureCapture } from '../hooks/useFixtureCapture';
+import { sampleCollector } from '../services/motion';
+import { VersionInfo } from '../components/VersionInfo';
+import type { HomeScreenProps } from '../types/navigation';
 
-export function HomeScreen({navigation}: HomeScreenProps) {
+export function HomeScreen({ navigation }: HomeScreenProps) {
   const insets = useSafeAreaInsets();
-  const {consentStatus, setConsent, clearLocalData} = useDataConsent();
-  const {enabled: fixtureCaptureEnabled, setEnabled: setFixtureCaptureEnabled} =
+  const { consentStatus, setConsent, clearLocalData } = useDataConsent();
+  const { enabled: fixtureCaptureEnabled, setEnabled: setFixtureCaptureEnabled } =
     useFixtureCapture();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -29,7 +29,7 @@ export function HomeScreen({navigation}: HomeScreenProps) {
       'Delete Motion Data',
       'This will delete all locally stored motion samples and clear the upload queue. This cannot be undone.',
       [
-        {text: 'Cancel', style: 'cancel'},
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
@@ -64,7 +64,7 @@ export function HomeScreen({navigation}: HomeScreenProps) {
 
   return (
     <View style={styles.container}>
-      <Surface style={[styles.header, {paddingTop: insets.top + 20}]} elevation={0}>
+      <Surface style={[styles.header, { paddingTop: insets.top + 20 }]} elevation={0}>
         <Text variant="displaySmall" style={styles.title}>
           DANGEROUS THINGS
         </Text>
@@ -131,7 +131,7 @@ export function HomeScreen({navigation}: HomeScreenProps) {
         )}
       </View>
 
-      <View style={[styles.footer, {paddingBottom: Math.max(insets.bottom, 20)}]}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <Text variant="bodySmall" style={styles.footerText}>
           dngr.us
         </Text>
@@ -197,5 +197,6 @@ const styles = StyleSheet.create({
   footerText: {
     color: DTColors.modeNormal,
     opacity: 0.6,
+    marginBottom: 4,
   },
 });

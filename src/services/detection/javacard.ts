@@ -6,50 +6,22 @@
 
 import {ChipType} from '../../types/detection';
 import {
-  GET_CPLC,
   selectAid,
   KNOWN_AIDS,
   sendIsoDepCommand,
   parseApduResponse,
   bytesToHex,
 } from '../nfc/commands';
+import {
+  identifyFabricator,
+  selectIsdAndReadCplc,
+  type CPLCData,
+} from './cplc';
 
-/**
- * CPLC (Card Production Life Cycle) data structure
- */
-export interface CPLCData {
-  icFabricator: number;
-  icType: number;
-  osId: number;
-  osBuildDate: number;
-  icFabricationDate: number;
-  icSerialNumber: number;
-  icBatchIdentifier: number;
-  icModulePackager: number;
-  installerIdentifier: number;
-}
-
-/**
- * Known IC Fabricator codes
- */
-const IC_FABRICATORS: Record<number, string> = {
-  0x4790: 'NXP Semiconductors',
-  0x4180: 'Atmel',
-  0x4090: 'Infineon',
-  0x3060: 'Renesas',
-  0x4250: 'Samsung',
-  0x3360: 'STMicroelectronics',
-};
-
-/**
- * Known JCOP versions based on OS ID patterns
- */
-const JCOP_OS_PATTERNS: Array<{pattern: number; mask: number; name: string}> = [
-  {pattern: 0x4791, mask: 0xffff, name: 'JCOP4 J3R180'},
-  {pattern: 0x4700, mask: 0xff00, name: 'JCOP4'},
-  {pattern: 0x4680, mask: 0xff80, name: 'JCOP3'},
-  {pattern: 0x4600, mask: 0xff00, name: 'JCOP2.x'},
-];
+// CPLC parsing and ISD selection live in `./cplc` so branches other than this
+// one can use them. Re-exported here for existing importers.
+export type {CPLCData} from './cplc';
+export {formatCPLC, identifyIcType, JCOP_IC_TYPES} from './cplc';
 
 /**
  * Fidesmo persistent memory fingerprint (from GP Qt project)
@@ -66,54 +38,16 @@ export interface JavaCardDetectionResult {
   cplc?: CPLCData;
   fabricatorName?: string;
   osName?: string;
+  /** NXP part name from the CPLC IC Type, e.g. "J3R180". */
+  icTypeName?: string;
+  /**
+   * Whether a GlobalPlatform ISD answered a SELECT. True even when CPLC
+   * itself was unreadable — the ISD alone proves a smart card substrate.
+   */
+  isdSelected?: boolean;
   installedApplets?: string[];
   isFidesmo?: boolean;
   error?: string;
-}
-
-/**
- * Parse CPLC response into structured data
- */
-function parseCPLC(data: number[]): CPLCData | null {
-  // CPLC is 42 bytes (sometimes with tag 9F7F prefix)
-  let cplcData = data;
-
-  // Remove tag if present
-  if (data[0] === 0x9f && data[1] === 0x7f) {
-    cplcData = data.slice(3); // Skip 9F 7F length
-  }
-
-  if (cplcData.length < 42) {
-    return null;
-  }
-
-  return {
-    icFabricator: (cplcData[0] << 8) | cplcData[1],
-    icType: (cplcData[2] << 8) | cplcData[3],
-    osId: (cplcData[4] << 8) | cplcData[5],
-    osBuildDate: (cplcData[6] << 8) | cplcData[7],
-    icFabricationDate: (cplcData[8] << 8) | cplcData[9],
-    icSerialNumber:
-      (cplcData[10] << 24) |
-      (cplcData[11] << 16) |
-      (cplcData[12] << 8) |
-      cplcData[13],
-    icBatchIdentifier: (cplcData[14] << 8) | cplcData[15],
-    icModulePackager: (cplcData[16] << 8) | cplcData[17],
-    installerIdentifier: (cplcData[18] << 8) | cplcData[19],
-  };
-}
-
-/**
- * Identify JCOP version from OS ID
- */
-function identifyJcopVersion(osId: number): string | null {
-  for (const pattern of JCOP_OS_PATTERNS) {
-    if ((osId & pattern.mask) === pattern.pattern) {
-      return pattern.name;
-    }
-  }
-  return null;
 }
 
 /**
@@ -126,41 +60,12 @@ function identifyJcopVersion(osId: number): string | null {
  */
 export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
   try {
-    // First, try to select the Card Manager (ISD)
-    let cardManagerSelected = false;
-    try {
-      const cmResponse = await sendIsoDepCommand(
-        selectAid(KNOWN_AIDS.cardManager),
-      );
-      const cmParsed = parseApduResponse(cmResponse);
-      cardManagerSelected = cmParsed.isSuccess;
-    } catch {
-      // Ignore - some cards don't support Card Manager selection
-    }
-
-    // Get CPLC data
-    let cplc: CPLCData | null = null;
-    let fabricatorName: string | undefined;
-    let osName: string | undefined;
-
-    if (cardManagerSelected) {
-      try {
-        const cplcResponse = await sendIsoDepCommand(GET_CPLC);
-        const cplcParsed = parseApduResponse(cplcResponse);
-
-        if (cplcParsed.isSuccess && cplcParsed.data.length >= 20) {
-          cplc = parseCPLC(cplcParsed.data);
-          if (cplc) {
-            fabricatorName =
-              IC_FABRICATORS[cplc.icFabricator] ||
-              `Unknown (0x${cplc.icFabricator.toString(16)})`;
-            osName = identifyJcopVersion(cplc.osId) || undefined;
-          }
-        }
-      } catch {
-        // CPLC failed - will try other methods
-      }
-    }
+    // Select the GlobalPlatform ISD (trying both known AIDs) and read CPLC.
+    const isd = await selectIsdAndReadCplc();
+    const cplc: CPLCData | null = isd.cplc ?? null;
+    let fabricatorName: string | undefined = isd.fabricatorName;
+    let osName: string | undefined = isd.osName;
+    const icTypeName = isd.icTypeName;
 
     // Check JavaCard Memory for Fidesmo fingerprint (from GP Qt project)
     // The memory applet reports persistent_total; Fidesmo devices report 84336
@@ -191,8 +96,19 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
     // Determine chip type
     let chipType: ChipType = ChipType.JAVACARD_UNKNOWN;
 
+    // A recognised NXP JCOP part number is the strongest signal available —
+    // it names the silicon outright, so it outranks the OS-ID pattern match.
+    if (icTypeName) {
+      chipType = ChipType.JCOP4;
+      if (!osName) {
+        osName = `JCOP4 (${icTypeName})`;
+      }
+      if (!fabricatorName) {
+        fabricatorName = 'NXP Semiconductors';
+      }
+    }
     // If we have CPLC and it's NXP JCOP4
-    if (cplc && cplc.icFabricator === 0x4790 && osName?.includes('JCOP4')) {
+    else if (cplc && cplc.icFabricator === 0x4790 && osName?.includes('JCOP4')) {
       chipType = ChipType.JCOP4;
     }
     // Fidesmo fingerprint (memory or AID) — definitely JCOP4 Apex
@@ -234,6 +150,8 @@ export async function detectJavaCard(): Promise<JavaCardDetectionResult> {
       cplc: cplc || undefined,
       fabricatorName,
       osName: osName || (cplc ? `Unknown OS (0x${cplc.osId.toString(16)})` : 'Unknown'),
+      icTypeName,
+      isdSelected: isd.isdSelected,
       installedApplets,
       isFidesmo,
     };
@@ -697,10 +615,9 @@ export function detectJavaCardFromAts(
 }
 
 /**
- * Format CPLC data for display
+ * Resolve a CPLC record's IC fabricator code to a vendor name.
+ * (`formatCPLC` for the full display string is re-exported from `./cplc`.)
  */
-export function formatCPLC(cplc: CPLCData): string {
-  const fabricator =
-    IC_FABRICATORS[cplc.icFabricator] || `0x${cplc.icFabricator.toString(16)}`;
-  return `Fabricator: ${fabricator}, OS: 0x${cplc.osId.toString(16)}`;
+export function describeCplcFabricator(cplc: CPLCData): string {
+  return identifyFabricator(cplc.icFabricator);
 }

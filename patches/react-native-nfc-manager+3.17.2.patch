@@ -1,0 +1,83 @@
+diff --git a/node_modules/react-native-nfc-manager/android/src/main/java/community/revteltech/nfc/Util.java b/node_modules/react-native-nfc-manager/android/src/main/java/community/revteltech/nfc/Util.java
+index 3f75319..2e8eafc 100644
+--- a/node_modules/react-native-nfc-manager/android/src/main/java/community/revteltech/nfc/Util.java
++++ b/node_modules/react-native-nfc-manager/android/src/main/java/community/revteltech/nfc/Util.java
+@@ -3,7 +3,9 @@ package community.revteltech.nfc;
+ import android.nfc.NdefMessage;
+ import android.nfc.NdefRecord;
+ import android.nfc.Tag;
++import android.nfc.tech.IsoDep;
+ import android.nfc.tech.Ndef;
++import android.nfc.tech.NfcA;
+ import android.util.Log;
+ import org.json.JSONArray;
+ import org.json.JSONException;
+@@ -60,6 +62,8 @@ public class Util {
+             try {
+                 json.put("id", bytesToHex(tag.getId()));
+                 json.put("techTypes", new JSONArray(Arrays.asList(tag.getTechList())));
++                putIsoDepAts(json, tag);
++                putNfcAInfo(json, tag);
+             } catch (JSONException e) {
+                 Log.e(TAG, "Failed to convert tag into json: " + tag, e);
+             }
+@@ -67,6 +71,59 @@ public class Util {
+         return json;
+     }
+ 
++    /**
++     * Expose the ISO-DEP answer-to-select for ISO 7816 cards.
++     *
++     * iOS already returns `historicalBytes` (see NfcManager.m), so without this Android
++     * is the odd one out and any cross-platform consumer silently gets nothing. Both
++     * values come from the ATS cached at discovery, so neither requires connect().
++     *
++     * Emitted as number arrays to match the iOS shape.
++     */
++    static void putIsoDepAts(JSONObject json, Tag tag) throws JSONException {
++        IsoDep isoDep = IsoDep.get(tag);
++        if (isoDep == null) {
++            return;
++        }
++        // Type A carries historical bytes; Type B carries a higher-layer response.
++        // A card has one or the other, never both.
++        byte[] historicalBytes = isoDep.getHistoricalBytes();
++        if (historicalBytes != null && historicalBytes.length > 0) {
++            json.put("historicalBytes", new JSONArray(toIntList(historicalBytes)));
++        }
++        byte[] hiLayerResponse = isoDep.getHiLayerResponse();
++        if (hiLayerResponse != null && hiLayerResponse.length > 0) {
++            json.put("hiLayerResponse", new JSONArray(toIntList(hiLayerResponse)));
++        }
++    }
++
++    /**
++     * Expose the ISO 14443-3A anticollision result (SAK + ATQA).
++     *
++     * Like the ATS values above, iOS surfaces these but stock Android does not.
++     * They come from the anticollision cached at discovery — no connect() needed.
++     * `sak` is emitted as an int; `atqa` as a number array.
++     */
++    static void putNfcAInfo(JSONObject json, Tag tag) throws JSONException {
++        NfcA nfcA = NfcA.get(tag);
++        if (nfcA == null) {
++            return;
++        }
++        json.put("sak", nfcA.getSak() & 0xFFFF);
++        byte[] atqa = nfcA.getAtqa();
++        if (atqa != null && atqa.length > 0) {
++            json.put("atqa", new JSONArray(toIntList(atqa)));
++        }
++    }
++
++    static List<Integer> toIntList(byte[] bytes) {
++        List<Integer> out = new ArrayList<>(bytes.length);
++        for (byte b : bytes) {
++            out.add(b & 0xFF);
++        }
++        return out;
++    }
++
+     static String translateType(String type) {
+         String translation;
+         switch (type) {

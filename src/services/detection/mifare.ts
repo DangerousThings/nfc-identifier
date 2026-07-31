@@ -26,12 +26,22 @@ const MIFARE_SAK_VALUES = {
   // MIFARE Classic 1K variants
   CLASSIC_1K: 0x08,
   CLASSIC_1K_SMARTMX: 0x28, // Classic 1K emulation on SmartMX
-  CLASSIC_1K_INFINEON: 0x88, // Infineon variant
+  /**
+   * 0x88 as a *WUP-SAK* has no legitimate source. MIFARE is NXP proprietary
+   * and cannot be emulated by other silicon vendors, so no genuine chip wakes
+   * up announcing this. 0x88 is a *Vanity SAK* value — what a SAK-swapped
+   * Classic 1K stores in Block 0. Seeing it during anticollision means a
+   * magic card is mirroring its WUP-SAK from Block 0.
+   *
+   * (This entry was previously mislabelled "Infineon variant".)
+   */
+  CLASSIC_1K_MIRRORED_VANITY: 0x88,
 
   // MIFARE Classic 4K variants
   CLASSIC_4K: 0x18,
   CLASSIC_4K_SMARTMX: 0x38, // Classic 4K emulation on SmartMX
-  CLASSIC_4K_INFINEON: 0x98, // Infineon variant
+  /** 0x98 — the 4K counterpart of `CLASSIC_1K_MIRRORED_VANITY`. */
+  CLASSIC_4K_MIRRORED_VANITY: 0x98,
 
   // MIFARE Classic 2K (rare)
   CLASSIC_2K: 0x19,
@@ -47,20 +57,49 @@ const MIFARE_SAK_VALUES = {
   ISO_DEP_CAPABLE: 0x20,
 } as const;
 
-// All SAK values that indicate MIFARE Classic
+// All SAK values that indicate MIFARE Classic.
+//
+// The mirrored-vanity values stay in these lists: a card announcing 0x88 is
+// still presenting itself as a Classic 1K and has 1K of memory laid out that
+// way, so memory-size detection should treat it as one. What it is *not* is
+// genuine silicon — `detectCardModes` flags it separately as a magic card.
 const ALL_CLASSIC_1K_SAKS: number[] = [
   MIFARE_SAK_VALUES.CLASSIC_1K,
   MIFARE_SAK_VALUES.CLASSIC_1K_SMARTMX,
-  MIFARE_SAK_VALUES.CLASSIC_1K_INFINEON,
+  MIFARE_SAK_VALUES.CLASSIC_1K_MIRRORED_VANITY,
   MIFARE_SAK_VALUES.CLASSIC_1K_UID_CHANGEABLE,
 ];
 
 const ALL_CLASSIC_4K_SAKS: number[] = [
   MIFARE_SAK_VALUES.CLASSIC_4K,
   MIFARE_SAK_VALUES.CLASSIC_4K_SMARTMX,
-  MIFARE_SAK_VALUES.CLASSIC_4K_INFINEON,
+  MIFARE_SAK_VALUES.CLASSIC_4K_MIRRORED_VANITY,
   MIFARE_SAK_VALUES.CLASSIC_2K, // 2K treated as 4K variant
 ];
+
+/**
+ * Vanity SAK values that should never appear as a WUP-SAK.
+ *
+ * MIFARE is NXP proprietary and cannot be emulated by other vendors' silicon,
+ * so there is no legitimate chip that wakes up announcing these. They are the
+ * Block 0 values a SAK-swapped card carries; seeing one during anticollision
+ * means the card mirrored its WUP-SAK from Block 0 — the exact failure mode
+ * SAK swapping exists to catch.
+ */
+const MIRRORED_VANITY_SAKS: number[] = [
+  MIFARE_SAK_VALUES.CLASSIC_1K_MIRRORED_VANITY,
+  MIFARE_SAK_VALUES.CLASSIC_4K_MIRRORED_VANITY,
+];
+
+/**
+ * True when a WUP-SAK is a value only ever valid inside Block 0.
+ *
+ * Conclusive on its own — no Block 0 read required — which matters because
+ * sector 0 is usually key-protected on fielded cards.
+ */
+export function isMirroredWupSak(sak: number): boolean {
+  return MIRRORED_VANITY_SAKS.includes(sak);
+}
 
 /**
  * Result of MIFARE Classic detection
@@ -181,18 +220,28 @@ export const IOS_MIFARE_CLASSIC_NOTE =
   'For cloning or data extraction, an Android device is required.';
 
 // ============================================================================
-// SAK Swap Detection
+// Multi-mode / clone-suspect card detection
 // ============================================================================
+//
+// TERMINOLOGY: this section used to be called "SAK swap detection", which was
+// a misnomer. **SAK swapping** means something specific — the WUP-SAK returned
+// during anticollision differs from the Vanity SAK stored in Block 0.
+//
+// What lives here is a heuristic over SAK / ATQA / historical bytes for cards
+// that can operate in more than one mode (MIFARE Plus security levels) or that
+// look like magic/clone cards. One genuine SAK-swap signal *is* available
+// without a Block 0 read: a card waking up with a Vanity-only SAK value
+// (0x88 / 0x98) is mirroring Block 0 — see `isMirroredWupSak`.
+//
+// Smart cards exposing several credentials at once — a JCOP part carrying both
+// a Classic and a DESFire credential, e.g. a DESFire EV3C — are *not* SAK
+// swapping and are no longer reported here at all. The credential sweep in
+// `credentials.ts` describes them accurately, with evidence.
 
 /**
- * SAK values that indicate potential SAK swap capability
- *
- * SAK swap refers to chips that can operate in multiple modes:
- * - MIFARE Plus in SL1 emulates Classic but can switch to SL3
- * - Some magic/clone cards have mutable SAK values
- * - DESFire cards with MIFARE Classic emulation
+ * SAK values that indicate a card able to operate in more than one mode.
  */
-const SAK_SWAP_INDICATORS = {
+const CARD_MODE_INDICATORS = {
   // MIFARE Plus SL1 (emulating Classic 1K but can upgrade)
   PLUS_SL1_2K: 0x08, // Same as Classic 1K but actually Plus
   PLUS_SL1_4K: 0x18, // Same as Classic 4K but actually Plus
@@ -202,9 +251,6 @@ const SAK_SWAP_INDICATORS = {
   PLUS_SL2_4K: 0x11,
   PLUS_SL3_2K: 0x20,
   PLUS_SL3_4K: 0x20,
-
-  // DESFire with MIFARE Application
-  DESFIRE_WITH_CLASSIC: 0x28, // DESFire + Classic emulation
 
   // Known magic card indicators (Gen2/CUID often have unusual ATQA)
   MAGIC_INDICATOR: 0x00,
@@ -225,18 +271,14 @@ const SUSPICIOUS_ATQA_PATTERNS = {
 };
 
 /**
- * SAK swap detection result
+ * Multi-mode / clone-suspect detection result.
  */
-export interface SakSwapDetection {
-  /** Whether SAK swap capability was detected */
-  hasSakSwap: boolean;
+export interface CardModeDetection {
+  /** Whether the card can operate in more than one mode. */
+  hasMultipleModes: boolean;
 
-  /** Type of SAK swap if detected */
-  swapType?:
-    | 'mifare_plus_sl1'
-    | 'desfire_with_classic'
-    | 'magic_card'
-    | 'unknown';
+  /** Which kind of multi-mode behaviour, if any. */
+  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'unknown';
 
   /** Confidence in the detection */
   confidence: 'high' | 'medium' | 'low';
@@ -249,24 +291,27 @@ export interface SakSwapDetection {
 }
 
 /**
- * Detect if a tag might have SAK swap capability
+ * Detect whether a tag can operate in more than one mode, or looks like a
+ * magic/clone card.
  *
- * This checks for indicators that suggest the tag can operate in
- * multiple modes or has been modified from factory defaults.
+ * This is inference from SAK / ATQA / historical bytes only. Full SAK
+ * swapping detection would require reading Block 0 (a key-gated Crypto1
+ * operation); the one keyless SAK-swap signal — a mirrored WUP-SAK — is
+ * folded in here via `isMirroredWupSak`.
  */
-export function detectSakSwap(
+export function detectCardModes(
   sak: number,
   atqa?: string,
   historicalBytes?: string,
-): SakSwapDetection {
+): CardModeDetection {
   const notes: string[] = [];
 
   // Check for MIFARE Plus in SL1 mode
   // Plus in SL1 looks identical to Classic at the SAK level; its historical
   // bytes carry an AN10833-defined signature (Figure 1, ISO 14443-4 leaves).
   if (
-    (sak === SAK_SWAP_INDICATORS.PLUS_SL1_2K ||
-      sak === SAK_SWAP_INDICATORS.PLUS_SL1_4K) &&
+    (sak === CARD_MODE_INDICATORS.PLUS_SL1_2K ||
+      sak === CARD_MODE_INDICATORS.PLUS_SL1_4K) &&
     historicalBytes
   ) {
     const plusMatch = matchPlusHistoricalSignature(historicalBytes);
@@ -275,8 +320,8 @@ export function detectSakSwap(
         `Plus ${plusMatch.variant} ${plusMatch.memoryK}K in SL${plusMatch.securityLevel} (signature match)`,
       );
       return {
-        hasSakSwap: true,
-        swapType: 'mifare_plus_sl1',
+        hasMultipleModes: true,
+        modeType: 'mifare_plus_sl1',
         confidence: 'high',
         description: `MIFARE Plus ${plusMatch.variant} ${plusMatch.memoryK}K in Security Level ${plusMatch.securityLevel} (emulating Classic). Can be switched to SL2/SL3 with cryptographic authentication.`,
         notes,
@@ -284,15 +329,30 @@ export function detectSakSwap(
     }
   }
 
-  // Check for DESFire with MIFARE Classic application
-  if (sak === SAK_SWAP_INDICATORS.DESFIRE_WITH_CLASSIC) {
+  // SAK 0x28 (smart card carrying a Classic credential) deliberately falls
+  // through. It used to be reported here as a "SAK swap", which was wrong on
+  // both counts: it is not SAK swapping, and the credential sweep now
+  // identifies exactly what the card carries — see `runCredentialSweep` and
+  // the DESFire EV3C promotion.
+
+  // A WUP-SAK that is really a Vanity SAK value. Conclusive without reading
+  // Block 0, which matters because sector 0 is key-protected on most fielded
+  // cards — this is often the only magic-card evidence we can get.
+  if (isMirroredWupSak(sak)) {
+    const hex = `0x${sak.toString(16).padStart(2, '0').toUpperCase()}`;
     return {
-      hasSakSwap: true,
-      swapType: 'desfire_with_classic',
+      hasMultipleModes: true,
+      modeType: 'magic_card',
       confidence: 'high',
       description:
-        'DESFire with MIFARE Classic emulation. Tag operates as both DESFire and Classic.',
-      notes: ['Full DESFire functionality available via ISO-DEP'],
+        `This card wakes up announcing SAK ${hex}, which is a Vanity SAK — a ` +
+        `value that only belongs in Block 0. MIFARE is NXP proprietary and no ` +
+        `genuine chip wakes up with this value, so the card is almost certainly ` +
+        `a magic card mirroring its WUP-SAK from Block 0.`,
+      notes: [
+        'A reader checking for SAK swapping will reject this card.',
+        'Gen2 CUID enforces a correct WUP-SAK regardless of Block 0; Gen4 UMC and Gen4 GDM let you set it manually.',
+      ],
     };
   }
 
@@ -307,8 +367,8 @@ export function detectSakSwap(
     ) {
       notes.push('ATQA pattern suggests Gen1a magic card');
       return {
-        hasSakSwap: true,
-        swapType: 'magic_card',
+        hasMultipleModes: true,
+        modeType: 'magic_card',
         confidence: 'medium',
         description:
           'Possible Gen1a magic card (UID-writable). SAK and UID can be modified with special commands.',
@@ -328,8 +388,8 @@ export function detectSakSwap(
     ) {
       notes.push('SAK/ATQA mismatch suggests modified or clone card');
       return {
-        hasSakSwap: true,
-        swapType: 'magic_card',
+        hasMultipleModes: true,
+        modeType: 'magic_card',
         confidence: 'low',
         description:
           'SAK and ATQA values are inconsistent. May be a magic/clone card with modified parameters.',
@@ -340,12 +400,12 @@ export function detectSakSwap(
 
   // Check for Plus SL2/SL3 modes
   if (
-    sak === SAK_SWAP_INDICATORS.PLUS_SL2_2K ||
-    sak === SAK_SWAP_INDICATORS.PLUS_SL2_4K
+    sak === CARD_MODE_INDICATORS.PLUS_SL2_2K ||
+    sak === CARD_MODE_INDICATORS.PLUS_SL2_4K
   ) {
     return {
-      hasSakSwap: true,
-      swapType: 'mifare_plus_sl1',
+      hasMultipleModes: true,
+      modeType: 'mifare_plus_sl1',
       confidence: 'high',
       description:
         'MIFARE Plus in Security Level 2. Supports both Classic commands and AES authentication.',
@@ -354,8 +414,8 @@ export function detectSakSwap(
   }
 
   if (
-    sak === SAK_SWAP_INDICATORS.PLUS_SL3_2K ||
-    sak === SAK_SWAP_INDICATORS.PLUS_SL3_4K
+    sak === CARD_MODE_INDICATORS.PLUS_SL3_2K ||
+    sak === CARD_MODE_INDICATORS.PLUS_SL3_4K
   ) {
     // SL3 may look like generic ISO-DEP. An AN10833 signature match
     // confirms Plus identity; without one, we don't infer Plus from SAK
@@ -363,8 +423,8 @@ export function detectSakSwap(
     const plusMatch = matchPlusHistoricalSignature(historicalBytes);
     if (plusMatch) {
       return {
-        hasSakSwap: true,
-        swapType: 'mifare_plus_sl1',
+        hasMultipleModes: true,
+        modeType: 'mifare_plus_sl1',
         confidence: 'high',
         description: `MIFARE Plus ${plusMatch.variant} ${plusMatch.memoryK}K in Security Level 3 (AES-only mode).`,
         notes: ['Cannot fall back to Classic mode once in SL3'],
@@ -372,11 +432,11 @@ export function detectSakSwap(
     }
   }
 
-  // No SAK swap detected
+  // Single-mode card
   return {
-    hasSakSwap: false,
+    hasMultipleModes: false,
     confidence: 'high',
-    description: 'Standard tag with no SAK swap capability detected.',
+    description: 'Standard tag operating in a single mode.',
   };
 }
 

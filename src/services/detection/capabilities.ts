@@ -51,6 +51,14 @@ const CHIP_INTERFACE_CAPABILITIES: Partial<Record<ChipType, ChipCapability[]>> =
     [ChipType.DESFIRE_EV1]: ['desfire-emulation', 'aes-protected'],
     [ChipType.DESFIRE_EV2]: ['desfire-emulation', 'aes-protected'],
     [ChipType.DESFIRE_EV3]: ['desfire-emulation', 'aes-protected'],
+    // EV3C exposes both credentials. The Classic tag is also contributed by
+    // the credential union in `deriveCapabilities`, but stating it here keeps
+    // the static table honest for callers that read it directly.
+    [ChipType.DESFIRE_EV3C]: [
+      'desfire-emulation',
+      'classic-emulation',
+      'aes-protected',
+    ],
     [ChipType.DESFIRE_LIGHT]: ['desfire-emulation', 'aes-protected'],
     [ChipType.DESFIRE_UNKNOWN]: ['desfire-emulation'],
     [ChipType.MIFARE_DUOX]: ['desfire-emulation', 'aes-protected'],
@@ -122,6 +130,10 @@ function substrateCapability(
  *
  * Combines:
  * - Interface / hardware tags from the static chip-type table
+ * - Interface tags from every entry in `transponder.credentials`, so a card
+ *   exposing several credentials at once (e.g. DESFire EV3C, which carries
+ *   both a DESFire and a MIFARE Classic credential) matches products for
+ *   all of them
  * - Substrate tag from `transponder.implementation`
  * - `iso7816-substrate` for any JavaCard-emulated card (the substrate
  *   itself can run applets even when exposing a Classic interface)
@@ -132,7 +144,7 @@ function substrateCapability(
  * added below.
  */
 export function deriveCapabilities(
-  transponder: Pick<Transponder, 'type' | 'implementation'>,
+  transponder: Pick<Transponder, 'type' | 'implementation' | 'credentials'>,
 ): ChipCapability[] {
   const capabilities = new Set<ChipCapability>();
 
@@ -140,6 +152,30 @@ export function deriveCapabilities(
   const interfaceCaps = CHIP_INTERFACE_CAPABILITIES[transponder.type] ?? [];
   for (const cap of interfaceCaps) {
     capabilities.add(cap);
+  }
+
+  // 1b. Union in the interface tags implied by each detected credential.
+  //     A card is only as narrow as its narrowest interface if it has one;
+  //     multi-credential cards should match products for every credential
+  //     they actually expose.
+  for (const credential of transponder.credentials ?? []) {
+    switch (credential.kind) {
+      case 'mifare-classic':
+        capabilities.add('classic-emulation');
+        break;
+      case 'mifare-plus':
+        capabilities.add('classic-emulation');
+        capabilities.add('aes-protected');
+        break;
+      case 'desfire':
+        capabilities.add('desfire-emulation');
+        capabilities.add('aes-protected');
+        break;
+      case 'javacard':
+        capabilities.add('iso7816-substrate');
+        capabilities.add('smartcard-substrate');
+        break;
+    }
   }
 
   // 2. Substrate tag from the implementation field
@@ -155,9 +191,15 @@ export function deriveCapabilities(
   }
 
   // 4. Native MIFARE Classic uses Crypto1; SmartMX / JavaCard substrates do
-  //    not. Tag this only on the native path.
+  //    not. Tag this only on the native path — and a card that answered the
+  //    ISD probe is a smart card regardless of what its SAK advertised, so
+  //    an ISD-backed credential vetoes the tag.
+  const hasSmartcardCredential = (transponder.credentials ?? []).some(
+    c => c.kind === 'javacard' || c.substrate === 'smartcard',
+  );
   if (
     transponder.implementation === 'native' &&
+    !hasSmartcardCredential &&
     (transponder.type === ChipType.MIFARE_CLASSIC_1K ||
       transponder.type === ChipType.MIFARE_CLASSIC_4K ||
       transponder.type === ChipType.MIFARE_CLASSIC_MINI)

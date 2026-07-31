@@ -1,0 +1,80 @@
+{
+  "name": "DESFire EV3C DT card on J3R452 (J3R452DNGR) \u2014 real capture",
+  "rawData": {
+    "uid": "8F740AF9",
+    "sak": 40,
+    "atqa": "00:04",
+    "ats": "4A:33:52:34:35:32:44:4E:47:52",
+    "historicalBytes": "4A:33:52:34:35:32:44:4E:47:52",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.MifareClassic",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.NdefFormatable"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": "04810043011a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "04814603001a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "906a000000",
+      "response": "91ca"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "911c"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000015100000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d60047000000000051102905692127320000000000000000125568393035363900000000000000009000"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "JCOP4",
+    "chipName": "JavaCard",
+    "implementation": "smartmx_emulation",
+    "confidence": "high",
+    "icTypeName": "J3R452",
+    "credentialKinds": [
+      "mifare-classic",
+      "desfire",
+      "javacard"
+    ],
+    "emulatedLabels": [
+      "MIFARE Classic 1K",
+      "MIFARE DESFire EV3"
+    ],
+    "dtProductName": "J3R452",
+    "dtProductKind": "card",
+    "capabilities": [
+      "desfire-emulation",
+      "classic-emulation",
+      "aes-protected",
+      "iso7816-substrate",
+      "smartcard-substrate"
+    ]
+  }
+}

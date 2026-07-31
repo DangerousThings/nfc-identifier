@@ -1,0 +1,85 @@
+{
+  "name": "J3R452 emulating MIFARE Plus EV2 \u2014 GP ISD, CPLC D600",
+  "rawData": {
+    "uid": "04d600aabbccdd",
+    "sak": 32,
+    "atqa": "00:04",
+    "ats": "0578807002",
+    "historicalBytes": "807002",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": "04920130001a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "04920130001a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "906a000000",
+      "response": null
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "9100"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d60047910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d60047910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040006d2760001240100",
+      "response": "9000"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "JCOP4",
+    "chipName": "JavaCard",
+    "implementation": "javacard_emulation",
+    "confidence": "high",
+    "icTypeName": "J3R452",
+    "credentialKinds": [
+      "mifare-plus",
+      "javacard"
+    ],
+    "emulatedLabels": [
+      "MIFARE Plus EV2"
+    ],
+    "capabilities": [
+      "iso7816-substrate",
+      "aes-protected",
+      "classic-emulation",
+      "smartcard-substrate"
+    ],
+    "installedApplets": [
+      "OpenPGP"
+    ]
+  }
+}

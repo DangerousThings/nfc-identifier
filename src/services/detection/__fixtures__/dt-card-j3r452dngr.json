@@ -1,0 +1,39 @@
+{
+  "name": "J3R452DNGR official card \u2014 DT historical-byte signature",
+  "rawData": {
+    "uid": "04452200aabbcc",
+    "sak": 32,
+    "atqa": "00:04",
+    "ats": "05784a3352343532444e4752",
+    "historicalBytes": "4a3352343532444e4752",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": null
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d60047910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "JCOP4",
+    "confidence": "high",
+    "icTypeName": "J3R452",
+    "dtProductName": "J3R452",
+    "dtProductKind": "card"
+  }
+}

@@ -209,6 +209,19 @@ export const CHIP_INFO: Partial<Record<ChipType, ChipInfo>> = {
     securityLevel: 'high',
     memoryNote: '2 KB, 4 KB, 8 KB, 16 KB, or 32 KB',
   },
+  [ChipType.DESFIRE_EV3C]: {
+    description:
+      'A DESFire EV3 that also exposes a MIFARE Classic credential — the "C" is for Classic. Both interfaces live on the same chip, so a reader may see it as either a DESFire card or a Classic card depending on what it asks for. This is a genuine NXP part, not a smart card emulating one.',
+    commonUses: ['Access control', 'Transit', 'Migrating Classic systems to DESFire'],
+    capabilities: [
+      'AES-128 / 3DES',
+      'Secure Dynamic Messaging (SDM)',
+      'MIFARE Classic emulation',
+      'Runs both credentials concurrently',
+    ],
+    securityLevel: 'high',
+    memoryNote: '2 KB, 4 KB, 8 KB, 16 KB, or 32 KB, plus the emulated Classic memory',
+  },
 
   // ========================================================================
   // ICODE SLIX/SLIX2/DNA — ISO/IEC 15693, NFC Forum Type 5
@@ -252,13 +265,13 @@ export const CHIP_INFO: Partial<Record<ChipType, ChipInfo>> = {
   // ========================================================================
   [ChipType.JCOP4]: {
     description:
-      'NXP JCOP4 on SmartMX3 (P71) secure microcontroller. Java Card OS with Common Criteria EAL6+ certification for multi-application secure element use.',
+      'NXP JCOP Java Card secure element on a SmartMX secure microcontroller. Java Card OS with GlobalPlatform and Common Criteria certification for multi-application use. The exact part and platform — e.g. J3R180 (JCOP 4) or J3R452 (JCOP 4.5) — are shown under Secure Element.',
     commonUses: ['Identity cards', 'Digital signatures', 'Secure authentication', 'Payment'],
     capabilities: [
       'Java Card OS with GlobalPlatform',
       'Contact + contactless (ISO 14443)',
       'Multiple applets (FIDO2, OpenPGP, OTP)',
-      'Common Criteria EAL6+',
+      'Common Criteria certified',
     ],
     securityLevel: 'high',
   },

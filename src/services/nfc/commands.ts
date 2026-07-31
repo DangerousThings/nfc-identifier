@@ -276,6 +276,12 @@ export async function sendNxpCustomCommand(
 export const KNOWN_AIDS = {
   /** Global Platform Card Manager */
   cardManager: [0xa0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00],
+  /**
+   * GlobalPlatform-registered Security Domain AID. Some issuers provision
+   * the ISD here instead of under the canonical Card Manager AID, so the
+   * ISD probe tries both.
+   */
+  gpSecurityDomain: [0xa0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00],
   /** OpenPGP applet */
   openPgp: [0xd2, 0x76, 0x00, 0x01, 0x24, 0x01],
   /** FIDO U2F applet (CTAP1) */

@@ -1,9 +1,7 @@
 {
-  "name": "JCOP4 (J3R180)",
-  "capturedAt": "2026-05-10T20:50:05.742Z",
-  "platform": "android",
+  "name": "J3R452 JavaCard with applets (Plus EV2 emulation) \u2014 real capture",
   "rawData": {
-    "uid": "04:00:00:00:00:00:80",
+    "uid": "75482B78",
     "techTypes": [
       "android.nfc.tech.IsoDep",
       "android.nfc.tech.NfcA",
@@ -14,17 +12,57 @@
     {
       "layer": "isoDep",
       "command": "9060000000",
-      "response": "6e00"
+      "response": "0482024201160491af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "0482060200160491af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "906a000000",
+      "response": "910b"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "910b"
     },
     {
       "layer": "isoDep",
       "command": "00a4040008a00000000300000000",
-      "response": "6a86"
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000015100000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d6004700000000005339367913214559000000000000000018250f363739313300000000000000009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000015100000000",
+      "response": "6f108408a000000151000000a5049f6501ff9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d6004700000000005339367913214559000000000000000018250f363739313300000000000000009000"
     },
     {
       "layer": "isoDep",
       "command": "00a404000ca0000008466d656d6f72790100",
-      "response": "00004bb400014970057d0fd09000"
+      "response": "00023aa80004c22c005f09109000"
     },
     {
       "layer": "isoDep",
@@ -39,17 +77,17 @@
     {
       "layer": "isoDep",
       "command": "00a404000ca0000006170200090001010100",
-      "response": "420300011745070001170000000000009000"
+      "response": "6d00"
     },
     {
       "layer": "isoDep",
       "command": "00a404000ca0000008466d656d6f72790100",
-      "response": "00004bb400014970057d0fd09000"
+      "response": "00023aa80004c22c005f09109000"
     },
     {
       "layer": "isoDep",
       "command": "00a4040006d2760001240100",
-      "response": "9000"
+      "response": "6d00"
     },
     {
       "layer": "isoDep",
@@ -64,7 +102,7 @@
     {
       "layer": "isoDep",
       "command": "00a404000da000000527210101415045580100",
-      "response": "6d00"
+      "response": "79030001027108e0430fee6239acb79000"
     },
     {
       "layer": "isoDep",
@@ -74,77 +112,70 @@
     {
       "layer": "isoDep",
       "command": "00a4040007a000000527210100",
-      "response": "6a86"
+      "response": "79030001027108e0430fee6239acb79000"
     },
     {
       "layer": "isoDep",
       "command": "00a4040005a00000030800",
-      "response": "6a86"
+      "response": "6b00"
     },
     {
       "layer": "isoDep",
       "command": "00a40400095361746f436869700000",
-      "response": "6a86"
+      "response": "6b00"
     },
     {
       "layer": "isoDep",
       "command": "00a404000b536565644b65657065720000",
-      "response": "6a86"
+      "response": "6b00"
     },
     {
       "layer": "isoDep",
       "command": "00a4040007a000000804000100",
-      "response": "6a86"
+      "response": "6b00"
     },
     {
       "layer": "isoDep",
       "command": "00a4040008a00000052720010100",
-      "response": "6a86"
+      "response": "040000000000020f00009000"
     },
     {
       "layer": "isoDep",
       "command": "00a404000e325041592e5359532e444446303100",
-      "response": "6a86"
+      "response": "6d00"
     },
     {
       "layer": "isoDep",
       "command": "00a404000ca0000008466d656d6f72790100",
-      "response": "00004bb400014970057d0fd09000"
+      "response": "00023aa80004c22c005f09109000"
     }
   ],
-  "apduResponses": {
-    "isoDep:9060000000": "6e00",
-    "isoDep:00a4040008a00000000300000000": "6a86",
-    "isoDep:00a404000ca0000008466d656d6f72790100": "00004bb400014970057d0fd09000",
-    "isoDep:00a404000ba00000061702000200000100": "6d00",
-    "isoDep:00a404000ba00000061702000200000200": "6d00",
-    "isoDep:00a404000ca0000006170200090001010100": "420300011745070001170000000000009000",
-    "isoDep:00a4040006d2760001240100": "9000",
-    "isoDep:00a4040008a0000006472f000200": "6d00",
-    "isoDep:00a4040009a0000006472f00010100": "5532465f56329000",
-    "isoDep:00a404000da000000527210101415045580100": "6d00",
-    "isoDep:00a4040007d276000085010100": "9000",
-    "isoDep:00a4040007a000000527210100": "6a86",
-    "isoDep:00a4040005a00000030800": "6a86",
-    "isoDep:00a40400095361746f436869700000": "6a86",
-    "isoDep:00a404000b536565644b65657065720000": "6a86",
-    "isoDep:00a4040007a000000804000100": "6a86",
-    "isoDep:00a4040008a00000052720010100": "6a86",
-    "isoDep:00a404000e325041592e5359532e444446303100": "6a86"
-  },
-  "anonymizationNotes": [
-    "UID serial portion zeroed; NXP manufacturer byte (0x04) preserved.",
-    "Fidesmo identity response (a0000006...010100): IC serial bytes (last 4 of the 12-byte fingerprint) replaced with 00s; product/fab/batch fields preserved.",
-    "JavaCard Memory persistentTotal preserved at 0x00014970 = 84336 (Apex signature)."
-  ],
+  "apduResponses": {},
   "expectedDetection": {
     "type": "JCOP4",
-    "confidence": "medium",
+    "chipName": "JavaCard",
+    "implementation": "smartmx_emulation",
+    "confidence": "high",
+    "icTypeName": "J3R452",
+    "credentialKinds": [
+      "mifare-plus",
+      "javacard"
+    ],
+    "emulatedLabels": [
+      "MIFARE Plus EV2"
+    ],
+    "installedApplets": [
+      "FIDO2",
+      "VivoKey OTP",
+      "NDEF",
+      "OATH (OTP)",
+      "YubiKey HMAC"
+    ],
     "capabilities": [
       "iso7816-substrate",
-      "aes-protected"
-    ],
-    "chipName": "JavaCard",
-    "implantName": "Apex"
+      "aes-protected",
+      "classic-emulation",
+      "smartcard-substrate"
+    ]
   }
 }

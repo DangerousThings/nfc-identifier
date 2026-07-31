@@ -17,17 +17,17 @@
  */
 
 import React from 'react';
-import {StyleSheet, View} from 'react-native';
-import {Text} from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Text } from 'react-native-paper';
 import * as Updates from 'expo-updates';
-import {DTColors} from '@dangerousthings/react-native';
+import { DTColors } from '@dangerousthings/react-native';
 
 /**
  * Binary version. Mirror this with `version` in app.config.ts on each
  * native build. JS-only OTA pushes do not bump this string — that's
  * intentional, since the binary on the device is what `version` describes.
  */
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 export function VersionInfo() {
   const channel = Updates.channel ?? 'unknown';

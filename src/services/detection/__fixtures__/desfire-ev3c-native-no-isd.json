@@ -1,0 +1,66 @@
+{
+  "name": "DESFire EV3C (native) \u2014 SAK 0x28 Classic + DESFire EV3, no ISD",
+  "rawData": {
+    "uid": "0499887766554433",
+    "sak": 40,
+    "atqa": "00:04",
+    "ats": "0578807002",
+    "historicalBytes": "807002",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.MifareClassic"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": "04010130001a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "04010130001a0591af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "906a000000",
+      "response": null
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "9100"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000015100000000",
+      "response": "6a82"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "DESFIRE_EV3C",
+    "chipName": "MIFARE DESFire EV3C",
+    "implementation": "native",
+    "confidence": "high",
+    "capabilities": [
+      "desfire-emulation",
+      "classic-emulation",
+      "aes-protected"
+    ],
+    "credentialKinds": [
+      "mifare-classic",
+      "desfire"
+    ],
+    "emulatedLabels": [
+      "MIFARE Classic 1K"
+    ]
+  }
+}

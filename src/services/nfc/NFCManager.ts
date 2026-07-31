@@ -49,7 +49,13 @@ function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
  * Parse SAK from tag event
  */
 function parseSak(tag: TagEvent): number | undefined {
-  // Android provides nfcA.sak
+  // Android: exposed top-level by our react-native-nfc-manager patch
+  // (NfcA.getSak()); stock builds omit it. Older/nested shape kept as a
+  // fallback for safety.
+  const topSak = (tag as any).sak;
+  if (typeof topSak === 'number') {
+    return topSak;
+  }
   const nfcA = (tag as any).nfcA;
   if (nfcA?.sak !== undefined) {
     return nfcA.sak;
@@ -84,7 +90,15 @@ function parseSak(tag: TagEvent): number | undefined {
  * Parse ATQA from tag event
  */
 function parseAtqa(tag: TagEvent): string | undefined {
-  // Android provides nfcA.atqa as byte array
+  // Android: top-level `atqa` (number[]) from our patch (NfcA.getAtqa()).
+  // getAtqa() returns the SENS_RES bytes little-endian ([0x04,0x00] for a
+  // Classic 1K), but the detector's ATQA patterns are big-endian ("00:04"),
+  // so reverse to match. Without this a normal Classic 1K reads as "04:00"
+  // and trips the Gen1a-magic heuristic.
+  const topAtqa = (tag as any).atqa;
+  if (Array.isArray(topAtqa) && topAtqa.length > 0) {
+    return bytesToHex([...topAtqa].reverse());
+  }
   const nfcA = (tag as any).nfcA;
   if (nfcA?.atqa) {
     return bytesToHex(nfcA.atqa);
@@ -101,13 +115,24 @@ function parseAts(tag: TagEvent): {ats?: string; historicalBytes?: string} {
 
   let historicalBytes: string | undefined;
 
-  // Android: isoDep.historicalBytes
-  if (isoDep?.historicalBytes) {
+  // Android: top-level `historicalBytes` (number[]) from our patch
+  // (IsoDep.getHistoricalBytes(), Type A). `hiLayerResponse` is the Type B
+  // counterpart. Stock react-native-nfc-manager omits both on Android.
+  const topHistorical = (tag as any).historicalBytes;
+  const topHiLayer = (tag as any).hiLayerResponse;
+  if (topHistorical) {
+    historicalBytes = bytesToHex(topHistorical);
+  } else if (topHiLayer) {
+    historicalBytes = bytesToHex(topHiLayer);
+  }
+
+  // Legacy/nested Android shape (older library builds).
+  if (!historicalBytes && isoDep?.historicalBytes) {
     historicalBytes = bytesToHex(isoDep.historicalBytes);
   }
 
   // iOS: iso7816.historicalBytes
-  if (iso7816?.historicalBytes) {
+  if (!historicalBytes && iso7816?.historicalBytes) {
     historicalBytes = bytesToHex(iso7816.historicalBytes);
   }
 

@@ -65,6 +65,7 @@ import { useDataConsent } from '../hooks/useDataConsent';
 import { useFixtureCapture } from '../hooks/useFixtureCapture';
 import { sampleCollector } from '../services/motion';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
+import { emulatedCredentials } from '../services/detection/credentials';
 import * as Clipboard from 'expo-clipboard';
 
 export function ResultScreen({ route, navigation }: ResultScreenProps) {
@@ -116,6 +117,14 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     if (!transponder) return null;
     return getChipFamilyInfo(getChipFamily(transponder.type));
   }, [transponder]);
+
+  // Credential interfaces the card emulates, i.e. everything except the
+  // smart card platform itself — that's what the card *is*, not what it
+  // pretends to be.
+  const emulatedCreds = useMemo(
+    () => emulatedCredentials(transponder?.credentials, transponder?.type),
+    [transponder],
+  );
 
   // Check if a product is the one that was just scanned (to exclude it)
   const isScannedImplant = (product: Product): boolean => {
@@ -235,7 +244,10 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
             <DTCard mode="success" title="CHIP IDENTIFIED" style={{ marginBottom: 20 }}>
 
               <Text variant="headlineMedium" style={styles.chipName}>
-                {transponder.chipName}
+                {/* When CPLC positively identifies the silicon (J3R180 /
+                    J3R452), that part number is the card's true identity —
+                    it outranks any credential the JavaCard emulates. */}
+                {transponder.cplc?.icTypeName ?? transponder.chipName}
               </Text>
 
               {/* Show implant name if detected from memory, or payment device */}
@@ -293,6 +305,13 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               )}
 
               <View style={styles.chipMeta}>
+                {/* Official DT badge — cards only. Implants are already named
+                    (e.g. "flexSecure"), so the badge would be redundant. */}
+                {transponder.dtProduct?.kind === 'card' && (
+                  <DTChip variant="success">
+                    DT
+                  </DTChip>
+                )}
                 <DTChip
                   variant="normal">
                   {transponder.family}
@@ -351,6 +370,70 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                         </DTChip>
                       ))}
                   </View>
+                </View>
+              )}
+
+              {/* Emulation Supported — credential interfaces this smart card
+                  presents in addition to being a smart card. Absent for
+                  native silicon, where the chip name already says it all. */}
+              {emulatedCreds.length > 0 && (
+                <View style={styles.appletsContainer}>
+                  <Text variant="labelMedium" style={styles.appletsLabel}>
+                    EMULATION SUPPORTED
+                  </Text>
+                  <View style={styles.appletsList}>
+                    {emulatedCreds.map((credential, idx) => (
+                      <DTChip
+                        key={idx}
+                        variant="emphasis"
+                        style={styles.appletChip}>
+                        {credential.detail
+                          ? `${credential.label} ${credential.detail}`
+                          : credential.label}
+                      </DTChip>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Secure Element (CPLC from the GlobalPlatform ISD) */}
+              {transponder.cplc && (
+                <View style={styles.appletsContainer}>
+                  <Text variant="labelMedium" style={styles.appletsLabel}>
+                    SECURE ELEMENT
+                  </Text>
+                  <View style={styles.detailRow}>
+                    <Text variant="bodyMedium" style={styles.detailLabel}>
+                      IC TYPE
+                    </Text>
+                    <Text variant="bodyLarge" style={styles.detailValue}>
+                      {transponder.cplc.icTypeName ??
+                        `0x${transponder.cplc.icType
+                          .toString(16)
+                          .padStart(4, '0')
+                          .toUpperCase()}`}
+                    </Text>
+                  </View>
+                  {transponder.cplc.fabricatorName && (
+                    <View style={styles.detailRow}>
+                      <Text variant="bodyMedium" style={styles.detailLabel}>
+                        FABRICATOR
+                      </Text>
+                      <Text variant="bodyLarge" style={styles.detailValue}>
+                        {transponder.cplc.fabricatorName}
+                      </Text>
+                    </View>
+                  )}
+                  {transponder.cplc.osName && (
+                    <View style={styles.detailRow}>
+                      <Text variant="bodyMedium" style={styles.detailLabel}>
+                        CARD OS
+                      </Text>
+                      <Text variant="bodyLarge" style={styles.detailValue}>
+                        {transponder.cplc.osName}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -510,7 +593,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
 
         {/* Individual Product Cards - staggered */}
         {transponder && displayMatches.length > 0 && !transponder.implantName?.includes('Payment Card') && (
-          displayMatches.map(({product, warnings}, index) => (
+          displayMatches.map(({ product, warnings }, index) => (
             <AnimatedSection key={product.id} delay={delays.productBase + (index * delays.productIncrement)}>
               <DTCard mode='emphasis' title={product.name} style={{ marginBottom: 25 }}>
                 <View style={styles.productHeader}>
@@ -540,7 +623,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                     variant="bodySmall"
                     style={[
                       styles.matchWarning,
-                      {color: matchWarningColor(warning)},
+                      { color: matchWarningColor(warning) },
                     ]}>
                     ⚠️ {warning.message}
                   </Text>
@@ -583,7 +666,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                   <Text variant="bodySmall" style={styles.familyMatchesLabel}>
                     Related products in the same chip family:
                   </Text>
-                  {matchResult.familyMatches.slice(0, 2).map(({product}) => (
+                  {matchResult.familyMatches.slice(0, 2).map(({ product }) => (
                     <Text key={product.id} variant="bodySmall" style={styles.familyMatchItem}>
                       • {product.name}
                     </Text>
@@ -594,26 +677,28 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
           </AnimatedSection>
         )}
 
-        {/* SAK Swap Detection Card */}
-        {transponder?.sakSwapInfo?.hasSakSwap && (
+        {/* Multi-Mode Card — Plus security levels, magic/clone indicators.
+            Deliberately NOT labelled "SAK swap": that card is above and
+            comes from an actual Block 0 comparison. */}
+        {transponder?.cardModeInfo?.hasMultipleModes && (
           <AnimatedSection delay={delays.sakSwap}>
             <Surface style={styles.sakSwapCard} elevation={1}>
               <Text variant="labelLarge" style={styles.sakSwapLabel}>
-                SAK SWAP DETECTED
+                MULTI-MODE CARD
               </Text>
               <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
 
               <Text variant="bodyLarge" style={styles.sakSwapType}>
-                {transponder.sakSwapInfo.swapType?.replace(/_/g, ' ').toUpperCase()}
+                {transponder.cardModeInfo.modeType?.replace(/_/g, ' ').toUpperCase()}
               </Text>
 
               <Text variant="bodyMedium" style={styles.sakSwapDescription}>
-                {transponder.sakSwapInfo.description}
+                {transponder.cardModeInfo.description}
               </Text>
 
-              {transponder.sakSwapInfo.notes && transponder.sakSwapInfo.notes.length > 0 && (
+              {transponder.cardModeInfo.notes && transponder.cardModeInfo.notes.length > 0 && (
                 <View style={styles.sakSwapNotes}>
-                  {transponder.sakSwapInfo.notes.map((note, index) => (
+                  {transponder.cardModeInfo.notes.map((note, index) => (
                     <Text key={index} variant="bodySmall" style={styles.sakSwapNote}>
                       • {note}
                     </Text>
@@ -741,21 +826,6 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
             </AnimatedSection>
           )}
 
-        {/* Fixture capture export — only when toggled on in settings */}
-        {fixtureCaptureEnabled && (
-          <AnimatedSection delay={delays.actions}>
-            <View style={styles.actions}>
-              <DTButton
-                variant="other"
-                mode="outlined"
-                onPress={handleCopyFixture}
-                style={{ width: '100%' }}>
-                COPY FIXTURE JSON
-              </DTButton>
-            </View>
-          </AnimatedSection>
-        )}
-
         {/* Action Buttons */}
         <AnimatedSection delay={delays.actions}>
           <View style={styles.actions}>
@@ -772,6 +842,17 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               labelStyle={styles.homeLabel}>
               HOME
             </Button>
+
+            {/* Fixture capture export — only when toggled on in settings */}
+            {fixtureCaptureEnabled && (
+              <DTButton
+                variant="other"
+                mode="outlined"
+                onPress={handleCopyFixture}
+                style={{ width: '100%' }}>
+                COPY FIXTURE JSON
+              </DTButton>
+            )}
           </View>
         </AnimatedSection>
       </View>

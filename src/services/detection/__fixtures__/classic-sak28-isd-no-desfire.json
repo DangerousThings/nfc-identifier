@@ -1,0 +1,45 @@
+{
+  "name": "MIFARE Classic 1K on smart card \u2014 SAK 0x28 + GP ISD, no DESFire",
+  "rawData": {
+    "uid": "04112233445566",
+    "sak": 40,
+    "atqa": "00:04",
+    "ats": "0578807002",
+    "historicalBytes": "807002",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA",
+      "android.nfc.tech.MifareClassic"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": null
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d60047910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "JCOP4",
+    "confidence": "high",
+    "credentialKinds": [
+      "mifare-classic",
+      "javacard"
+    ],
+    "emulatedLabels": [
+      "MIFARE Classic 1K"
+    ],
+    "icTypeName": "J3R452"
+  }
+}

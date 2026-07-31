@@ -1,0 +1,68 @@
+{
+  "name": "J3R452 (JCOP 4.5) with MIFARE Plus EV2 emulation \u2014 real capture",
+  "rawData": {
+    "uid": "25442B78",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": "0482024201160491af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "0482060200160491af"
+    },
+    {
+      "layer": "isoDep",
+      "command": "906a000000",
+      "response": "910b"
+    },
+    {
+      "layer": "isoDep",
+      "command": "90af000000",
+      "response": "910b"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000015100000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d6004700000000005339367844214559000000000000000018260e363738343400000000000000009000"
+    }
+  ],
+  "apduResponses": {},
+  "expectedDetection": {
+    "type": "JCOP4",
+    "chipName": "JavaCard",
+    "implementation": "smartmx_emulation",
+    "confidence": "high",
+    "icTypeName": "J3R452",
+    "credentialKinds": [
+      "mifare-plus",
+      "javacard"
+    ],
+    "emulatedLabels": [
+      "MIFARE Plus EV2"
+    ],
+    "capabilities": [
+      "iso7816-substrate",
+      "aes-protected",
+      "classic-emulation",
+      "smartcard-substrate"
+    ]
+  }
+}

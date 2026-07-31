@@ -52,6 +52,7 @@ const DESFIRE_ALL: ChipType[] = [
   ChipType.DESFIRE_EV1,
   ChipType.DESFIRE_EV2,
   ChipType.DESFIRE_EV3,
+  ChipType.DESFIRE_EV3C,
 ];
 
 /**

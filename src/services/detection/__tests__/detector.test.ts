@@ -109,6 +109,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 // ---------- import after mocks ----------
 
 import {detectChip} from '../detector';
+import {emulatedCredentials} from '../credentials';
 import type {RawTagData} from '../../../types/nfc';
 
 // ---------- fixture loading ----------
@@ -133,6 +134,18 @@ interface Fixture {
     capabilities?: string[];
     chipName?: string;
     implantName?: string;
+    /** Credential kinds the card must expose, order-insensitive. */
+    credentialKinds?: string[];
+    /** Labels expected in the "Emulation Supported" UI block. */
+    emulatedLabels?: string[];
+    /** JavaCard applets that must appear in installedApplets (subset). */
+    installedApplets?: string[];
+    /** CPLC IC type name, e.g. "J3R180". */
+    icTypeName?: string;
+    /** Official DT product name from the historical-byte signature. */
+    dtProductName?: string;
+    /** Official DT product kind: 'implant' | 'card'. */
+    dtProductKind?: string;
   };
 }
 
@@ -202,6 +215,47 @@ describe('detectChip — fixture suite', () => {
       if (fixture.expectedDetection.implantName !== undefined) {
         expect(result.transponder?.implantName).toBe(
           fixture.expectedDetection.implantName,
+        );
+      }
+
+      if (fixture.expectedDetection.credentialKinds) {
+        const kinds = (result.transponder?.credentials ?? []).map(c => c.kind);
+        expect([...kinds].sort()).toEqual(
+          [...fixture.expectedDetection.credentialKinds].sort(),
+        );
+      }
+
+      if (fixture.expectedDetection.emulatedLabels) {
+        const labels = emulatedCredentials(
+          result.transponder?.credentials,
+          result.transponder?.type,
+        ).map(c => c.label);
+        expect([...labels].sort()).toEqual(
+          [...fixture.expectedDetection.emulatedLabels].sort(),
+        );
+      }
+
+      if (fixture.expectedDetection.icTypeName !== undefined) {
+        expect(result.transponder?.cplc?.icTypeName).toBe(
+          fixture.expectedDetection.icTypeName,
+        );
+      }
+
+      if (fixture.expectedDetection.installedApplets) {
+        for (const applet of fixture.expectedDetection.installedApplets) {
+          expect(result.transponder?.installedApplets).toContain(applet);
+        }
+      }
+
+      if (fixture.expectedDetection.dtProductName !== undefined) {
+        expect(result.transponder?.dtProduct?.name).toBe(
+          fixture.expectedDetection.dtProductName,
+        );
+      }
+
+      if (fixture.expectedDetection.dtProductKind !== undefined) {
+        expect(result.transponder?.dtProduct?.kind).toBe(
+          fixture.expectedDetection.dtProductKind,
         );
       }
 

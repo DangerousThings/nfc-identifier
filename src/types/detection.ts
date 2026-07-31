@@ -37,6 +37,13 @@ export enum ChipType {
   DESFIRE_EV1 = 'DESFIRE_EV1',
   DESFIRE_EV2 = 'DESFIRE_EV2',
   DESFIRE_EV3 = 'DESFIRE_EV3',
+  /**
+   * DESFire EV3C — the "C" is for Classic. An EV3 that also exposes a
+   * MIFARE Classic credential. Identified when a Classic SAK card answers
+   * DESFire GetVersion with EV3; the Classic interface is retained in
+   * `Transponder.credentials`.
+   */
+  DESFIRE_EV3C = 'DESFIRE_EV3C',
   DESFIRE_LIGHT = 'DESFIRE_LIGHT',
   DESFIRE_UNKNOWN = 'DESFIRE_UNKNOWN',
 
@@ -153,18 +160,101 @@ export interface DesfireVersionInfo {
 }
 
 /**
- * SAK swap detection result (imported from mifare detector)
+ * Multi-mode / clone-suspect card detection (from the mifare detector).
+ *
+ * This is a heuristic over SAK and ATQA values describing cards that can
+ * operate in more than one mode (MIFARE Plus security levels) or that look
+ * like magic/clone cards.
+ *
+ * **Not to be confused with SAK swapping**, which specifically means the
+ * WUP-SAK differs from the Vanity SAK stored in Block 0. A card mirroring a
+ * Vanity SAK value (0x88 / 0x98) as its WUP-SAK is caught here keylessly via
+ * `modeType: 'magic_card'`. A smart card exposing both a Classic and a
+ * DESFire credential is multi-mode; it is not SAK swapping either.
  */
-export interface SakSwapInfo {
-  hasSakSwap: boolean;
-  swapType?:
-    | 'mifare_plus_sl1'
-    | 'desfire_with_classic'
-    | 'magic_card'
-    | 'unknown';
+export interface CardModeInfo {
+  hasMultipleModes: boolean;
+  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'unknown';
   confidence: 'high' | 'medium' | 'low';
   description: string;
   notes?: string[];
+}
+
+/**
+ * A credential interface exposed by a transponder.
+ *
+ * A single smart card can present several of these at once — e.g. a JCOP
+ * part hosting both a MIFARE Classic emulation and a DESFire applet. The
+ * detector records every credential it can prove, and `deriveCapabilities`
+ * unions across them so the product matcher sees the full picture.
+ */
+export type CredentialKind =
+  | 'mifare-classic'
+  | 'mifare-plus'
+  | 'desfire'
+  | 'javacard';
+
+export interface DetectedCredential {
+  kind: CredentialKind;
+
+  /** Display label, e.g. "MIFARE Classic 1K" or "DESFire EV3". */
+  label: string;
+
+  /** Optional qualifier, e.g. "SL1" or "J3R180". */
+  detail?: string;
+
+  /**
+   * What the credential runs on. `smartcard` means a SmartMX / JavaCard
+   * substrate is emulating the named family; `native` means real silicon
+   * of that family; `unknown` means we couldn't probe (e.g. iOS Classic).
+   */
+  substrate: 'native' | 'smartcard' | 'unknown';
+
+  confidence: 'high' | 'medium' | 'low';
+
+  /** What proved this credential exists, e.g. "ISD SELECT 9000". */
+  evidence: string;
+}
+
+/**
+ * CPLC (Card Production Life Cycle) data read from a GlobalPlatform ISD.
+ *
+ * `icTypeName` identifies the silicon (e.g. "J3R180"), not the product —
+ * several Dangerous Things products share the same part.
+ */
+export interface CplcInfo {
+  icFabricator: number;
+  icType: number;
+  icTypeName?: string;
+  osId: number;
+  osBuildDate: number;
+  icFabricationDate: number;
+  icSerialNumber: number;
+  icBatchIdentifier: number;
+  icModulePackager: number;
+  installerIdentifier: number;
+  fabricatorName?: string;
+  osName?: string;
+  /** Hex of the full CPLC record. */
+  raw: string;
+}
+
+/**
+ * How confident we are in a *product* identification, and why.
+ *
+ * Kept separate from `Transponder.confidence` (which is about chip
+ * identification) because the two diverge: a J3R180 can be identified with
+ * total certainty while the product built on it stays ambiguous.
+ */
+export interface IdentityEvidence {
+  source:
+    | 'persistent-total'
+    | 'cplc-ic-type'
+    | 'applet-set'
+    | 'historical-bytes';
+  matched: boolean;
+  /** What this signal contributed, for display and debugging. */
+  note: string;
 }
 
 /**
@@ -202,8 +292,19 @@ export interface Transponder {
   /** Chip-specific version info */
   versionInfo?: NtagVersionInfo | DesfireVersionInfo;
 
-  /** SAK swap detection results */
-  sakSwapInfo?: SakSwapInfo;
+  /** Multi-mode / clone-suspect heuristics, incl. mirrored WUP-SAK. */
+  cardModeInfo?: CardModeInfo;
+
+  /**
+   * Official Dangerous Things product identified from its ATS historical-byte
+   * signature. Present only for genuine DT products; drives the "DT" badge and
+   * raises detection confidence. For implants, `name` is also surfaced as the
+   * implant name (e.g. "flexSecure").
+   */
+  dtProduct?: {
+    name: string;
+    kind: 'implant' | 'card';
+  };
 
   /** Implant name found in memory (for Type 2 tags) */
   implantName?: string;
@@ -224,6 +325,22 @@ export interface Transponder {
     transientResetFree: number;
     transientDeselectFree: number;
   };
+
+  /**
+   * Every credential interface the card exposes. Populated by the credential
+   * sweep for ISO-DEP capable cards; absent for tags where the concept
+   * doesn't apply (NTAG, ISO 15693).
+   */
+  credentials?: DetectedCredential[];
+
+  /** CPLC read from the GlobalPlatform ISD, when one was selectable. */
+  cplc?: CplcInfo;
+
+  /**
+   * Why we named (or declined to name) the implant. Empty or absent when no
+   * product identification was attempted.
+   */
+  identityEvidence?: IdentityEvidence[];
 
   /** Detection confidence level */
   confidence: 'high' | 'medium' | 'low';
@@ -306,6 +423,7 @@ export const CHIP_NAMES: Record<ChipType, string> = {
   [ChipType.DESFIRE_EV1]: 'MIFARE DESFire EV1',
   [ChipType.DESFIRE_EV2]: 'MIFARE DESFire EV2',
   [ChipType.DESFIRE_EV3]: 'MIFARE DESFire EV3',
+  [ChipType.DESFIRE_EV3C]: 'MIFARE DESFire EV3C',
   [ChipType.DESFIRE_LIGHT]: 'MIFARE DESFire Light',
   [ChipType.DESFIRE_UNKNOWN]: 'MIFARE DESFire (Unknown version)',
 
@@ -342,7 +460,7 @@ export const CHIP_NAMES: Record<ChipType, string> = {
   [ChipType.ISO15693_UNKNOWN]: 'ISO 15693 Tag',
 
   // JavaCard
-  [ChipType.JCOP4]: 'JCOP4 (J3R180)',
+  [ChipType.JCOP4]: 'JavaCard',
   [ChipType.JAVACARD_UNKNOWN]: 'JavaCard',
 
   // Generic/Unknown
@@ -459,6 +577,10 @@ export const CHIP_CLONEABILITY: Record<
   [ChipType.DESFIRE_EV3]: {
     cloneable: false,
     note: 'Cryptographic protection prevents cloning',
+  },
+  [ChipType.DESFIRE_EV3C]: {
+    cloneable: false,
+    note: 'Cryptographic protection prevents cloning. The MIFARE Classic credential it emulates may be readable, but the card itself cannot be duplicated.',
   },
   [ChipType.DESFIRE_LIGHT]: {
     cloneable: false,
