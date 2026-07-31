@@ -6,6 +6,31 @@
 - Android SDK (API 36+, build-tools 36.0.0)
 - JDK 17
 
+## Native patches (required)
+
+This project patches `react-native-nfc-manager` via
+[`patch-package`](https://github.com/ds300/patch-package) to expose, on Android,
+the ISO-DEP ATS **historical bytes** / higher-layer response and the NfcA
+**SAK / ATQA** — stock `getTag()` returns only `id` + `techTypes` there, while
+iOS surfaces them natively. The patch is
+`patches/react-native-nfc-manager+3.17.2.patch` and is applied automatically by
+the `postinstall` hook whenever you run `npm install`.
+
+Without it, several Android detection paths silently degrade to empty input:
+official DT product identification (historical-byte signatures), MIFARE Plus
+signatures, DESFire EV3C, and mirrored-SAK magic-card detection.
+
+If you rebuild **without** reinstalling dependencies (e.g. a repeat
+`prebuild`/gradle run), re-apply the patch first:
+
+```bash
+npx patch-package
+```
+
+Autolinking compiles the library's native code from `node_modules`, so the patch
+must be present there before the gradle build — `expo prebuild --clean`
+regenerates `android/` but does not touch `node_modules`.
+
 ## Play Store Build (with OTA updates)
 
 ```bash
