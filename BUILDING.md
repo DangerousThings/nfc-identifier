@@ -6,6 +6,22 @@
 - Android SDK (API 36+, build-tools 36.0.0)
 - JDK 17
 
+### Selecting JDK 17
+
+The Gradle build requires JDK 17. If your default `java` is a different
+version (e.g. 21), point the shell at 17 before building — no system change
+needed:
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64   # adjust path to your JDK 17
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version                                          # verify: 17.x
+```
+
+This only affects the current terminal, so set it again in any new shell you
+build from. To change the system default permanently instead:
+`sudo update-alternatives --config java` and pick the JDK 17 entry.
+
 ## Native patches (required)
 
 This project patches `react-native-nfc-manager` via
