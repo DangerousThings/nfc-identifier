@@ -27,7 +27,7 @@ import { DTColors } from '@dangerousthings/react-native';
  * native build. JS-only OTA pushes do not bump this string — that's
  * intentional, since the binary on the device is what `version` describes.
  */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 
 export function VersionInfo() {
   const channel = Updates.channel ?? 'unknown';

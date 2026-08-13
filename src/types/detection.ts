@@ -258,6 +258,18 @@ export interface IdentityEvidence {
 }
 
 /**
+ * Form factor of an identified product. Distinct from `dtProduct.kind`, which
+ * classifies a *DT historical-byte signature*; this classifies whatever
+ * `implantName` ended up holding, whichever detector named it.
+ *
+ * - `implant`      — goes under the skin (flexSecure, xNT, Spark 2, ...)
+ * - `wearable`     — worn, not implanted (Apex Ring, Fidesmo wearables)
+ * - `payment-card` — a bank card, not a DT product
+ * - `unknown`      — named a product but not its form factor
+ */
+export type ProductKind = 'implant' | 'wearable' | 'payment-card' | 'unknown';
+
+/**
  * Detected transponder information
  */
 export interface Transponder {
@@ -308,6 +320,17 @@ export interface Transponder {
 
   /** Implant name found in memory (for Type 2 tags) */
   implantName?: string;
+
+  /**
+   * What form factor `implantName` names. Only `'implant'` may be presented
+   * to the user as an implant — a ring is a wearable, and calling it an
+   * implant is simply wrong.
+   *
+   * `'unknown'` is a real answer, not a placeholder: an "Apex 2" identified
+   * by storage size alone could be a ring or a flex, since both report the
+   * same capacity. Say nothing rather than guess.
+   */
+  productKind?: ProductKind;
 
   /** Temperature reading from sensor (VK Thermo / Temptress) */
   temperature?: { celsius: number; fahrenheit: number };

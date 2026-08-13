@@ -27,7 +27,6 @@
       }
     },
     "production": {
-      "autoIncrement": true,
       "channel": "production"
     }
   },

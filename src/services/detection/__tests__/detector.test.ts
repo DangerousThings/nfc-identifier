@@ -142,6 +142,8 @@ interface Fixture {
     installedApplets?: string[];
     /** CPLC IC type name, e.g. "J3R180". */
     icTypeName?: string;
+    /** Form factor of the named product — 'implant' must never be a ring. */
+    productKind?: string;
     /** Official DT product name from the historical-byte signature. */
     dtProductName?: string;
     /** Official DT product kind: 'implant' | 'card'. */
@@ -238,6 +240,12 @@ describe('detectChip — fixture suite', () => {
       if (fixture.expectedDetection.icTypeName !== undefined) {
         expect(result.transponder?.cplc?.icTypeName).toBe(
           fixture.expectedDetection.icTypeName,
+        );
+      }
+
+      if (fixture.expectedDetection.productKind !== undefined) {
+        expect(result.transponder?.productKind).toBe(
+          fixture.expectedDetection.productKind,
         );
       }
 

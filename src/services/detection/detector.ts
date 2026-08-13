@@ -47,6 +47,7 @@ import {
   type CplcInfo,
   type DetectedCredential,
   type IdentityEvidence,
+  type ProductKind,
 } from '../../types/detection';
 import {detectNtag, mightBeNtag, detectImplantNameInMemory} from './ntag';
 import {
@@ -94,6 +95,7 @@ function createTransponder(
     confidence?: Transponder['confidence'];
     cardModeInfo?: Transponder['cardModeInfo'];
     implantName?: string;
+    productKind?: ProductKind;
     temperature?: Transponder['temperature'];
     temperature2?: Transponder['temperature2'];
     installedApplets?: string[];
@@ -140,6 +142,13 @@ function createTransponder(
     options.implantName ??
     (dtMatch?.kind === 'implant' ? dtMatch.name : undefined);
 
+  // Every other detector that sets `implantName` — NTAG memory signatures,
+  // Spark 2, the temperature sensors, the DT historical-byte table — names a
+  // genuine implant, so that's the default. The JavaCard branches pass their
+  // own kind, because theirs can be a ring.
+  const productKind: ProductKind | undefined =
+    options.productKind ?? (implantName ? 'implant' : undefined);
+
   return {
     type,
     family: getChipFamily(type),
@@ -158,6 +167,7 @@ function createTransponder(
     versionInfo: options.versionInfo,
     cardModeInfo,
     implantName,
+    productKind,
     temperature: options.temperature,
     temperature2: options.temperature2,
     installedApplets: options.installedApplets,
@@ -178,16 +188,25 @@ function createTransponder(
  * Persistent-memory baselines reported by the JavaCard Memory applet's
  * `persistentTotal` field.
  *
- * These are silicon-level capacities and don't change as applets are
- * installed (only `persistentFree` does). A small ±256-byte tolerance
- * catches reporting quirks.
+ * These don't change as applets are installed (only `persistentFree` does).
+ * A small ±256-byte tolerance catches reporting quirks.
  *
- * - Apex        → 84336 bytes (0x00014970)
- * - J3R180      → 167736 bytes (0x00028F38); note this is *also* what a
- *                 flexSecure reports, because a flexSecure **is** a J3R180.
- *                 Storage size therefore cannot separate the two.
+ * - Apex        → 84336 bytes (0x00014970). Note this is *below* the raw
+ *                 J3R180 capacity: it's what a Fidesmo-provisioned J3R180
+ *                 reports once the Fidesmo platform has taken its share.
+ * - Apex 2      → 311852 bytes (0x0004C22C), the same figure for a
+ *                 Fidesmo-provisioned J3R452.
+ * - J3R180      → 167736 bytes (0x00028F38), the bare silicon capacity;
+ *                 note this is *also* what a flexSecure reports, because a
+ *                 flexSecure **is** a J3R180. Storage size therefore cannot
+ *                 separate the two.
+ *
+ * Neither Apex figure tells us the form factor — a flex and a ring on the
+ * same generation report the same total — so these name a generation
+ * ("Apex 2"), never a product variant ("Apex 2 Ring").
  */
 const APEX_PERSISTENT_TOTAL = 84336;
+const APEX2_PERSISTENT_TOTAL = 311852;
 const J3R180_PERSISTENT_TOTAL = 167736;
 const STORAGE_MATCH_TOLERANCE = 256;
 
@@ -201,17 +220,49 @@ function storageMatches(
   return Math.abs(persistentTotal - baseline) <= STORAGE_MATCH_TOLERANCE;
 }
 
-function isApexStorageSize(persistentTotal?: number): boolean {
-  return storageMatches(persistentTotal, APEX_PERSISTENT_TOTAL);
+/**
+ * The Apex generation a `persistentTotal` corresponds to, or undefined when
+ * it matches neither. Only meaningful alongside the Fidesmo fingerprint —
+ * on its own the figure says nothing about the product.
+ */
+function apexGenerationFromStorage(persistentTotal?: number): string | undefined {
+  if (storageMatches(persistentTotal, APEX_PERSISTENT_TOTAL)) {
+    return 'Apex';
+  }
+  if (storageMatches(persistentTotal, APEX2_PERSISTENT_TOTAL)) {
+    return 'Apex 2';
+  }
+  return undefined;
 }
 
 function isJ3R180StorageSize(persistentTotal?: number): boolean {
   return storageMatches(persistentTotal, J3R180_PERSISTENT_TOTAL);
 }
 
+/**
+ * Apex ring generations, keyed by the CPLC IC Type name (see
+ * `JCOP_IC_TYPES` in cplc.ts):
+ *
+ * - `J3R180` → IC Type 0xD321 → Apex Ring
+ * - `J3R452` → IC Type 0xD600 → Apex 2 Ring
+ *
+ * Only consulted when the Fidesmo fingerprint *and* a payment applet are
+ * both present.
+ */
+const APEX_RING_BY_IC_TYPE: Record<string, string> = {
+  J3R180: 'Apex Ring',
+  J3R452: 'Apex 2 Ring',
+};
+
 /** What `getJavacardImplantName` concluded, and the evidence behind it. */
 interface ImplantIdentity {
   name?: string;
+  /**
+   * Always set when `name` is — `'unknown'` where the signals name a product
+   * but not its form factor, so a caller can never mistake "we didn't say"
+   * for "it's an implant".
+   */
+  kind?: ProductKind;
   evidence: IdentityEvidence[];
 }
 
@@ -236,8 +287,11 @@ interface ImplantIdentity {
  * not here — this function names *products*, and returns undefined when only
  * the part is known.
  *
+ * - Fidesmo + payment + D321       → "Apex Ring"
+ * - Fidesmo + payment + D600       → "Apex 2 Ring"
  * - Payment applets                → "<Network> Payment Card" (not an implant)
- * - Fidesmo + Apex storage         → "Apex"
+ * - Fidesmo + Apex storage         → "Apex" / "Apex 2" (generation only —
+ *   storage size can't tell a ring from a flex)
  * - Fidesmo + other storage        → "Fidesmo Wearable"
  * - CPLC IC type known             → undefined (silicon shown in header)
  * - JavaCard Memory + J3R180 size  → "J3R180" only when CPLC couldn't be read
@@ -257,12 +311,39 @@ export function getJavacardImplantName(
     return {evidence};
   }
 
+  const persistentTotal = storageInfo?.persistentTotal;
+  const fidesmoDetected = isFidesmo || applets.includes('Fidesmo');
+
   if (applets.includes('Payment (PPSE)')) {
     const network = applets.find(a =>
       ['Visa', 'Mastercard', 'American Express', 'Discover', 'Maestro'].includes(
         a,
       ),
     );
+
+    // A Fidesmo device carrying a payment applet is an Apex ring with a
+    // payment credential loaded, not a bare payment card. The silicon
+    // separates the generations: J3R180 (0xD321) is the Apex, J3R452
+    // (0xD600) the Apex 2.
+    const apexRingName = fidesmoDetected
+      ? APEX_RING_BY_IC_TYPE[icTypeName ?? '']
+      : undefined;
+    if (apexRingName) {
+      evidence.push({
+        source: 'applet-set',
+        matched: true,
+        note: `Fidesmo fingerprint present with payment applet${
+          network ? ` (${network})` : ''
+        }`,
+      });
+      evidence.push({
+        source: 'cplc-ic-type',
+        matched: true,
+        note: `CPLC IC Type identifies ${icTypeName} silicon`,
+      });
+      return {name: apexRingName, kind: 'wearable', evidence};
+    }
+
     evidence.push({
       source: 'applet-set',
       matched: true,
@@ -270,12 +351,10 @@ export function getJavacardImplantName(
     });
     return {
       name: network ? `${network} Payment Card` : 'Payment Card',
+      kind: 'payment-card',
       evidence,
     };
   }
-
-  const persistentTotal = storageInfo?.persistentTotal;
-  const fidesmoDetected = isFidesmo || applets.includes('Fidesmo');
 
   if (icTypeName) {
     evidence.push({
@@ -292,13 +371,15 @@ export function getJavacardImplantName(
       note: 'Fidesmo fingerprint present',
     });
 
-    if (isApexStorageSize(persistentTotal)) {
+    const generation = apexGenerationFromStorage(persistentTotal);
+    if (generation) {
       evidence.push({
         source: 'persistent-total',
         matched: true,
-        note: `${persistentTotal} bytes matches Apex`,
+        note: `${persistentTotal} bytes matches ${generation}`,
       });
-      return {name: 'Apex', evidence};
+      // Generation only — a ring and a flex report the same capacity.
+      return {name: generation, kind: 'unknown', evidence};
     }
 
     evidence.push({
@@ -307,9 +388,9 @@ export function getJavacardImplantName(
       note:
         persistentTotal === undefined
           ? 'Storage size unavailable'
-          : `${persistentTotal} bytes does not match Apex`,
+          : `${persistentTotal} bytes matches no known Apex generation`,
     });
-    return {name: 'Fidesmo Wearable', evidence};
+    return {name: 'Fidesmo Wearable', kind: 'wearable', evidence};
   }
 
   // No Fidesmo. When CPLC named the silicon, that identity is surfaced in
@@ -332,7 +413,7 @@ export function getJavacardImplantName(
         matched: false,
         note: 'Not yet implemented — would disambiguate flexSecure',
       });
-      return {name: 'J3R180', evidence};
+      return {name: 'J3R180', kind: 'unknown', evidence};
     }
 
     evidence.push({
@@ -805,6 +886,7 @@ async function runIso14443_4Branch(
     // ...) come from the JavaCard probe; the two lists are merged, deduped.
     let installedApplets = desfireAppLabels;
     let storageInfo: Transponder['storageInfo'];
+    let identity: ImplantIdentity | undefined;
     if (isJavaCardHeadline) {
       onProgress?.('Probing JavaCard applets...');
       const jc = await detectJavaCard();
@@ -822,6 +904,17 @@ async function runIso14443_4Branch(
       } catch {
         // Storage read is best-effort.
       }
+
+      // Name the product from the same signals the pure-JavaCard branch
+      // (4d/4e) uses. An Apex answers DESFire GetVersion — it emulates one —
+      // so it lands *here*, not there; without this call the Apex / Apex Ring
+      // / Fidesmo naming would be unreachable for every emulating JavaCard.
+      identity = getJavacardImplantName(
+        installedApplets,
+        jc.isFidesmo,
+        storageInfo,
+        jc.icTypeName ?? sweep.isd.icTypeName,
+      );
     }
 
     return {
@@ -833,7 +926,11 @@ async function runIso14443_4Branch(
           desfireResult.chipType === ChipType.DESFIRE_UNKNOWN
             ? 'medium'
             : 'high',
-        implantName,
+        // A Spark 2 / NTAG DNA name found above wins; otherwise take the
+        // JavaCard identity.
+        implantName: implantName ?? identity?.name,
+        productKind: implantName ? 'implant' : identity?.kind,
+        identityEvidence: identity?.evidence,
         installedApplets,
         storageInfo,
         implementation,
@@ -862,10 +959,19 @@ async function runIso14443_4Branch(
     } catch {
       // Storage read is best-effort.
     }
+    const identity = getJavacardImplantName(
+      jc.installedApplets,
+      jc.isFidesmo,
+      storageInfo,
+      jc.icTypeName,
+    );
     return {
       success: true,
       transponder: createTransponder(ChipType.JCOP4, rawData, {
         confidence: 'high',
+        implantName: identity.name,
+        productKind: identity.kind,
+        identityEvidence: identity.evidence,
         installedApplets: jc.installedApplets,
         storageInfo,
         cplc: jc.cplc
@@ -1015,6 +1121,7 @@ async function runIso14443_4Branch(
       transponder: createTransponder(jcFallback.chipType, rawData, {
         confidence: 'medium',
         implantName: identity.name,
+        productKind: identity.kind,
         identityEvidence: identity.evidence,
         installedApplets: jcFallback.installedApplets,
         storageInfo: fallbackStorageInfo,

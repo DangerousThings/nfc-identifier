@@ -126,6 +126,28 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     [transponder],
   );
 
+  // A bank card keeps its own "PAYMENT DEVICE DETECTED" row and stays on the
+  // chip name as its headline; a DT product that merely carries a payment
+  // applet (an Apex ring) is named as the product it is.
+  const isPaymentCard = transponder?.productKind === 'payment-card';
+
+  // What the card is, in the user's terms. An identified product wins over
+  // the silicon part number; the part is still shown under SECURE ELEMENT.
+  const headlineName = transponder
+    ? (!isPaymentCard && transponder.implantName) ||
+      transponder.cplc?.icTypeName ||
+      transponder.chipName
+    : undefined;
+
+  // The product catalog is implants, end to end. Offering it to someone
+  // holding a ring or a bank card presents them as interchangeable with
+  // implants, which they are not — so the section is suppressed outright
+  // rather than re-headed. Only a positively identified non-implant is
+  // suppressed: an unidentified chip still gets "Compatible Implants",
+  // which is the whole point of the app.
+  const showsImplantMatches =
+    transponder?.productKind !== 'wearable' && !isPaymentCard;
+
   // Check if a product is the one that was just scanned (to exclude it)
   const isScannedImplant = (product: Product): boolean => {
     if (!transponder?.implantName) return false;
@@ -243,34 +265,33 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
           <AnimatedSection delay={delays.chipIdentified}>
             <DTCard mode="success" title="CHIP IDENTIFIED" style={{ marginBottom: 20 }}>
 
+              {/* Only a genuine implant may be called one. A ring is a
+                  wearable, and an Apex named by storage size alone could be
+                  either — so it gets no tag at all. */}
+              {transponder.productKind === 'implant' && (
+                <Text variant="labelMedium" style={styles.productKindTag}>
+                  IMPLANT DETECTED
+                </Text>
+              )}
+
+              {/* An identified product is the headline — "Apex 2 Ring" says
+                  far more than "J3R452". The silicon is still reported below
+                  under SECURE ELEMENT, so nothing is lost by demoting it. */}
               <Text variant="headlineMedium" style={styles.chipName}>
-                {/* When CPLC positively identifies the silicon (J3R180 /
-                    J3R452), that part number is the card's true identity —
-                    it outranks any credential the JavaCard emulates. */}
-                {transponder.cplc?.icTypeName ?? transponder.chipName}
+                {headlineName}
               </Text>
 
-              {/* Show implant name if detected from memory, or payment device */}
-              {transponder.implantName && (
-                transponder.implantName.includes('Payment Card') ? (
-                  <View style={styles.paymentDeviceRow}>
-                    <Text variant="labelMedium" style={styles.paymentDeviceLabel}>
-                      PAYMENT DEVICE DETECTED
-                    </Text>
-                    <Text variant="titleLarge" style={styles.paymentDeviceValue}>
-                      {transponder.implantName.replace(' Payment Card', '')}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.implantNameRow}>
-                    <Text variant="labelMedium" style={styles.implantNameLabel}>
-                      IMPLANT DETECTED
-                    </Text>
-                    <Text variant="titleLarge" style={styles.implantNameValue}>
-                      {transponder.implantName}
-                    </Text>
-                  </View>
-                )
+              {/* A bank card is not a DT product: it keeps the chip name as
+                  its headline and names the network here instead. */}
+              {isPaymentCard && transponder.implantName && (
+                <View style={styles.paymentDeviceRow}>
+                  <Text variant="labelMedium" style={styles.paymentDeviceLabel}>
+                    PAYMENT DEVICE DETECTED
+                  </Text>
+                  <Text variant="titleLarge" style={styles.paymentDeviceValue}>
+                    {transponder.implantName.replace(' Payment Card', '')}
+                  </Text>
+                </View>
               )}
 
               {/* Temperature readings for Thermo / Temptress */}
@@ -584,15 +605,15 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
           </AnimatedSection>
         )}
 
-        {/* Product Matches Card - hide for payment devices */}
-        {transponder && displayMatches.length > 0 && !transponder.implantName?.includes('Payment Card') && (
+        {/* Product Matches Card - hidden for wearables and payment devices */}
+        {transponder && displayMatches.length > 0 && showsImplantMatches && (
           <AnimatedSection delay={delays.compatibleLabel}>
             <DTLabel mode='emphasis' primaryText={transponder.implantName ? "Similar Implants" : "Compatible Implants"} style={{ marginBottom: 25, }} size="large" animated={false} />
           </AnimatedSection>
         )}
 
         {/* Individual Product Cards - staggered */}
-        {transponder && displayMatches.length > 0 && !transponder.implantName?.includes('Payment Card') && (
+        {transponder && displayMatches.length > 0 && showsImplantMatches && (
           displayMatches.map(({ product, warnings }, index) => (
             <AnimatedSection key={product.id} delay={delays.productBase + (index * delays.productIncrement)}>
               <DTCard mode='emphasis' title={product.name} style={{ marginBottom: 25 }}>
@@ -802,12 +823,12 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         )}
 
         {/* Conversion Service Card - show for payment devices, or when recommended (but NOT for unidentified chips) */}
-        {transponder && (transponder?.implantName?.includes('Payment Card') ||
+        {transponder && (isPaymentCard ||
           (matchResult?.conversionRecommended && !transponder?.implantName)) && (
             <AnimatedSection delay={delays.conversion}>
               <Surface style={styles.conversionCard} elevation={1}>
                 <Text variant="bodyMedium" style={styles.conversionText}>
-                  {transponder?.implantName?.includes('Payment Card')
+                  {isPaymentCard
                     ? "Payment cards can't be copied/cloned to implants. Our conversion service might be an option."
                     : !transponder
                       ? 'Unknown chip? Our conversion service can help.'
@@ -1243,25 +1264,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   // Implant name styles
-  implantNameRow: {
-    backgroundColor: 'rgba(0, 255, 0, 0.1)',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: DTColors.modeSuccess,
-    padding: 12,
-    marginTop: 12,
-    marginBottom: 8,
-    alignItems: 'center',
-  },
-  implantNameLabel: {
+  // Small caption above the product headline. Left-aligned to sit directly
+  // over `chipName`, which is also left-aligned.
+  productKindTag: {
     color: DTColors.modeSuccess,
     letterSpacing: 2,
     marginBottom: 4,
-  },
-  implantNameValue: {
-    color: DTColors.modeSuccess,
-    fontWeight: 'bold',
-    letterSpacing: 1,
   },
   // Temperature styles
   temperatureContainer: {

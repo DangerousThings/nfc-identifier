@@ -5,7 +5,7 @@ const IS_FDROID = process.env.FDROID === '1';
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'DT NFC Transponder Identifier',
   slug: 'dt-nfc-transponder-identifier',
-  version: '1.3.0',
+  version: '1.3.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
@@ -23,7 +23,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    versionCode: 16,
+    versionCode: 18,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#000000',
