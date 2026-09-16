@@ -278,7 +278,7 @@ export interface CardModeDetection {
   hasMultipleModes: boolean;
 
   /** Which kind of multi-mode behaviour, if any. */
-  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'unknown';
+  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'ultimate_gen4' | 'unknown';
 
   /** Confidence in the detection */
   confidence: 'high' | 'medium' | 'low';

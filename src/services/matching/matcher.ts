@@ -47,7 +47,43 @@ function capabilitiesSatisfy(
  * `compatibleChips` entry for the source type still surface, and vice
  * versa during the migration window.
  */
+/**
+ * A product built around an Ultimate Gen4 ("UG4") magic chip — the only
+ * meaningful matches for a scanned UG4, since it *is* one. Keyed on the
+ * "Ultimate Gen4" feature string the catalog already carries (dUG4T, flexUG4).
+ */
+function isUltimateGen4Product(product: Product): boolean {
+  return product.features.some(f => f.toLowerCase().includes('ultimate gen4'));
+}
+
+/**
+ * Match result for a scanned Ultimate Gen4 tag: only the UG4 implants, none of
+ * the NTAG/Ultralight/Classic products its emulated coat would otherwise pull
+ * in. A UG4 owner wants a UG4 implant, not the chip it happens to imitate.
+ */
+function matchUltimateGen4(chip: Transponder): MatchResult {
+  const cloneability = CHIP_CLONEABILITY[chip.type as ChipType];
+  const matches: ProductMatch[] = PRODUCTS.filter(isUltimateGen4Product).map(
+    product => ({product, warnings: buildMatchWarnings(chip, product)}),
+  );
+  return {
+    exactMatches: matches,
+    cloneTargets: [],
+    familyMatches: [],
+    isCloneable: cloneability?.cloneable ?? true,
+    cloneabilityNote: cloneability?.note,
+    conversionRecommended: matches.length === 0,
+    conversionUrl: CONVERSION_SERVICE_URL,
+  };
+}
+
 export function matchChipToProducts(chip: Transponder): MatchResult {
+  // A UG4 is its own thing: list only UG4 implants, skip the emulated-chip
+  // matches entirely.
+  if (chip.cardModeInfo?.modeType === 'ultimate_gen4') {
+    return matchUltimateGen4(chip);
+  }
+
   const chipType = chip.type as ChipType
   const chipProductMap = getChipProductMap();
   const cloneability = CHIP_CLONEABILITY[chipType];

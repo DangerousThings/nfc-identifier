@@ -23,10 +23,15 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0}),
 }));
 
-jest.mock('react-native-nfc-manager', () => ({
+jest.mock('@dangerousthings/react-native-nfc-manager', () => ({
   __esModule: true,
   default: {},
   NfcTech: {},
+  NfcAdapter: {
+    FLAG_READER_NFC_A: 0x1,
+    FLAG_READER_SKIP_NDEF_CHECK: 0x80,
+    FLAG_READER_NO_PLATFORM_SOUNDS: 0x100,
+  },
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -57,17 +62,45 @@ jest.mock('@dangerousthings/react-native', () => {
       const {Text: T} = require('react-native');
       return <T>{primaryText}</T>;
     },
-    DTColors: {
-      modeNormal: '#00FFFF',
-      modeEmphasis: '#FFFF00',
-      modeWarning: '#FF0000',
-      modeSuccess: '#00FF00',
-      modeOther: '#FF00FF',
-      dark: '#000000',
-      light: '#FFFFFF',
-    },
+    useDTTheme: () => ({
+      colors: {background: '#000000', onBackground: '#FFFFFF', surface: '#000000'},
+      custom: {
+        modeNormal: '#00FFFF',
+        modeEmphasis: '#FFFF00',
+        modeWarning: '#FF0000',
+        modeSuccess: '#00FF00',
+        modeOther: '#FF00FF',
+        border: '#00FFFF',
+        borderEmphasis: '#FFFF00',
+      },
+    }),
   };
 });
+
+// Navigation internals the screen touches. `usePreventRemove` needs a real
+// navigator, so it's replaced with a recorder the swipe-back tests drive.
+let mockPreventRemoveEnabled = false;
+let mockPreventRemoveHandler:
+  | ((e: {data: {action: {type: string}}}) => void)
+  | null = null;
+jest.mock('@react-navigation/native', () => ({
+  usePreventRemove: (
+    enabled: boolean,
+    callback: (e: {data: {action: {type: string}}}) => void,
+  ) => {
+    mockPreventRemoveEnabled = enabled;
+    mockPreventRemoveHandler = callback;
+  },
+}));
+jest.mock('@react-navigation/elements', () => ({HeaderBackButton: () => null}));
+
+let mockSwipeBackAction = 'restart-scan';
+jest.mock('../../hooks/useSwipeBack', () => ({
+  useSwipeBack: () => ({
+    action: mockSwipeBackAction,
+    setAction: jest.fn(),
+  }),
+}));
 
 jest.mock('expo-clipboard', () => ({setStringAsync: jest.fn()}));
 jest.mock('../../hooks/useDataConsent', () => ({
@@ -119,17 +152,32 @@ function textOf(tree: ReactTestRenderer): string[] {
   return collectStrings(tree.toJSON());
 }
 
-function render(t: Transponder): string[] {
+function navigationMock() {
+  return {
+    navigate: jest.fn(),
+    goBack: jest.fn(),
+    setOptions: jest.fn(),
+    replace: jest.fn(),
+    popToTop: jest.fn(),
+    dispatch: jest.fn(),
+  };
+}
+
+function renderWith(t: Transponder, navigation = navigationMock()) {
   let tree!: ReactTestRenderer;
   renderer.act(() => {
     tree = renderer.create(
       <ResultScreen
         route={{params: {tagData: t.rawData, transponder: t}} as any}
-        navigation={{navigate: jest.fn(), goBack: jest.fn()} as any}
+        navigation={navigation as any}
       />,
     );
   });
-  return textOf(tree);
+  return {tree, navigation};
+}
+
+function render(t: Transponder): string[] {
+  return textOf(renderWith(t).tree);
 }
 
 const apex2Ring = (kind: ProductKind = 'wearable') =>
@@ -227,5 +275,100 @@ describe('chip card headline', () => {
   test('an unidentified chip still falls back to the chip name', () => {
     const text = render(transponder({type: ChipType.NTAG216, chipName: 'NTAG216'}));
     expect(text).toContain('NTAG216');
+  });
+});
+
+
+describe('swipe back setting', () => {
+  // Platform.OS is 'ios' under the react-native jest preset. On iOS the swipe
+  // is a native dismissal (POP) and the header arrow is our own button
+  // (GO_BACK); on Android it's the other way round — see the Android block.
+  const swipe = {data: {action: {type: 'POP'}}};
+  const headerBack = {data: {action: {type: 'GO_BACK'}}};
+
+  afterEach(() => {
+    mockSwipeBackAction = 'restart-scan';
+    mockPreventRemoveHandler = null;
+    mockPreventRemoveEnabled = false;
+  });
+
+  test('the default restarts the scan, replacing rather than stacking', () => {
+    const {navigation} = renderWith(apex2Ring());
+
+    expect(mockPreventRemoveEnabled).toBe(true);
+    renderer.act(() => mockPreventRemoveHandler!(swipe));
+
+    expect(navigation.replace).toHaveBeenCalledWith('Scan');
+    expect(navigation.popToTop).not.toHaveBeenCalled();
+  });
+
+  test('"home" pops the whole result stack', () => {
+    mockSwipeBackAction = 'home';
+    const {navigation} = renderWith(apex2Ring());
+
+    renderer.act(() => mockPreventRemoveHandler!(swipe));
+
+    expect(navigation.popToTop).toHaveBeenCalled();
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  test('"previous result" leaves the plain stack pop alone', () => {
+    mockSwipeBackAction = 'previous-result';
+    renderWith(apex2Ring());
+
+    expect(mockPreventRemoveEnabled).toBe(false);
+  });
+
+  // The header arrow and the Android system back dispatch GO_BACK, not the
+  // POP a native dismissal sends. Only the gesture follows the setting.
+  test('a header back is passed straight through', () => {
+    const {navigation} = renderWith(apex2Ring());
+
+    renderer.act(() => mockPreventRemoveHandler!(headerBack));
+
+    expect(navigation.dispatch).toHaveBeenCalledWith(headerBack.data.action);
+    expect(navigation.replace).not.toHaveBeenCalled();
+    expect(navigation.popToTop).not.toHaveBeenCalled();
+  });
+});
+
+describe('swipe back on Android', () => {
+  // The system back gesture is the platform back event, which React Navigation
+  // dispatches as GO_BACK — the reverse of iOS. Getting this backwards is what
+  // made the setting silently do nothing on Android.
+  const {Platform} = require('react-native');
+  const original = Platform.OS;
+
+  beforeAll(() => {
+    Object.defineProperty(Platform, 'OS', {value: 'android', configurable: true});
+  });
+
+  afterAll(() => {
+    Object.defineProperty(Platform, 'OS', {value: original, configurable: true});
+    mockSwipeBackAction = 'restart-scan';
+  });
+
+  test('the system back gesture follows the setting', () => {
+    const {navigation} = renderWith(apex2Ring());
+
+    expect(mockPreventRemoveEnabled).toBe(true);
+    renderer.act(() => mockPreventRemoveHandler!({data: {action: {type: 'GO_BACK'}}}));
+
+    expect(navigation.replace).toHaveBeenCalledWith('Scan');
+  });
+
+  test('the native header arrow still pops the stack', () => {
+    const {navigation} = renderWith(apex2Ring());
+
+    renderer.act(() => mockPreventRemoveHandler!({data: {action: {type: 'POP'}}}));
+
+    expect(navigation.dispatch).toHaveBeenCalledWith({type: 'POP'});
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  test('the header keeps its native back button', () => {
+    const {navigation} = renderWith(apex2Ring());
+
+    expect(navigation.setOptions).toHaveBeenCalledWith({headerLeft: undefined});
   });
 });

@@ -11,7 +11,7 @@ jest.mock('react-native', () => ({
   Platform: {OS: 'android', select: (obj: any) => obj.android ?? obj.default},
 }));
 
-jest.mock('react-native-nfc-manager', () => ({
+jest.mock('@dangerousthings/react-native-nfc-manager', () => ({
   __esModule: true,
   default: {},
   NfcTech: {},

@@ -174,7 +174,7 @@ export interface DesfireVersionInfo {
  */
 export interface CardModeInfo {
   hasMultipleModes: boolean;
-  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'unknown';
+  modeType?: 'mifare_plus_sl1' | 'magic_card' | 'ultimate_gen4' | 'unknown';
   confidence: 'high' | 'medium' | 'low';
   description: string;
   notes?: string[];

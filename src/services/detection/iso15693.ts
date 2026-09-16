@@ -8,7 +8,7 @@
  */
 
 import {Platform} from 'react-native';
-import NfcManager from 'react-native-nfc-manager';
+import NfcManager from '@dangerousthings/react-native-nfc-manager';
 import {ChipType} from '../../types/detection';
 import {getIso15693SystemInfo, transceiveNfcV, iso15693ReadSingleBlock} from '../nfc/commands';
 

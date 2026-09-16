@@ -50,6 +50,7 @@ import {
   type ProductKind,
 } from '../../types/detection';
 import {detectNtag, mightBeNtag, detectImplantNameInMemory} from './ntag';
+import {probeGen4Ultimate} from './gen4';
 import {
   detectMifareClassic,
   isMifareClassicSak,
@@ -77,7 +78,7 @@ import {
 import {deriveCapabilities} from './capabilities';
 import {runCredentialSweep, credentialsForJavaCard} from './credentials';
 import {matchDtHistoricalSignature} from './dtproducts';
-import type {IsdProbeResult} from './cplc';
+import {selectIsdAndReadCplc, type IsdProbeResult} from './cplc';
 import * as fixtureRecorder from './fixtureRecorder';
 import {isFixtureCaptureEnabled} from '../../hooks/useFixtureCapture';
 
@@ -105,6 +106,8 @@ function createTransponder(
     credentials?: DetectedCredential[];
     cplc?: CplcInfo;
     identityEvidence?: IdentityEvidence[];
+    /** Positive Gen4 "Ultimate" magic probe (CF …C6). Overrides cardModeInfo. */
+    gen4Ultimate?: boolean;
   } = {},
 ): Transponder {
   const cloneInfo = CHIP_CLONEABILITY[type];
@@ -118,6 +121,18 @@ function createTransponder(
       rawData.atqa,
       rawData.historicalBytes,
     );
+  }
+  // A Gen4 "Ultimate" magic tag answering CF …C6 is positive proof, so it
+  // supersedes the keyless SAK-mirror guess above.
+  if (options.gen4Ultimate) {
+    cardModeInfo = {
+      hasMultipleModes: true,
+      modeType: 'ultimate_gen4',
+      confidence: 'high',
+      description:
+        'Ultimate gen4 magic transponder — answered the CF …C6 ' +
+        'configuration command. Emulates this chip; UID and memory are writable.',
+    };
   }
 
   const capabilities = deriveCapabilities({
@@ -185,25 +200,25 @@ function createTransponder(
 }
 
 /**
- * Persistent-memory baselines reported by the JavaCard Memory applet's
- * `persistentTotal` field.
+ * Persistent-memory baseline reported by the JavaCard Memory applet's
+ * `persistentTotal` field, with a ±256-byte tolerance for reporting quirks.
  *
- * These don't change as applets are installed (only `persistentFree` does).
- * A small ±256-byte tolerance catches reporting quirks.
- *
- * - Apex        → 84336 bytes (0x00014970). Note this is *below* the raw
- *                 J3R180 capacity: it's what a Fidesmo-provisioned J3R180
- *                 reports once the Fidesmo platform has taken its share.
- * - Apex 2      → 311852 bytes (0x0004C22C), the same figure for a
- *                 Fidesmo-provisioned J3R452.
  * - J3R180      → 167736 bytes (0x00028F38), the bare silicon capacity;
  *                 note this is *also* what a flexSecure reports, because a
  *                 flexSecure **is** a J3R180. Storage size therefore cannot
  *                 separate the two.
  *
- * Neither Apex figure tells us the form factor — a flex and a ring on the
- * same generation report the same total — so these name a generation
- * ("Apex 2"), never a product variant ("Apex 2 Ring").
+ * - Apex        → 84336 bytes (0x00014970), and
+ * - Apex 2      → 311852 bytes (0x0004C22C), what a Fidesmo-provisioned
+ *                 J3R180 / J3R452 reports once the platform has taken its
+ *                 share.
+ *
+ * The two Apex figures are install profiles, **not** generation baselines: on
+ * a Fidesmo device the *total* is set during the Fidesmo install, not just
+ * `persistentFree`. A converted Apex 2 ring on the same 0xD600 silicon has
+ * been measured at 162028 bytes (2026-08-22). So the generation comes from
+ * the CPLC IC type — fixed in the mask ROM — and these are consulted only as
+ * a fallback when CPLC is unreadable. See `APEX_GENERATION_BY_IC_TYPE`.
  */
 const APEX_PERSISTENT_TOTAL = 84336;
 const APEX2_PERSISTENT_TOTAL = 311852;
@@ -221,9 +236,9 @@ function storageMatches(
 }
 
 /**
- * The Apex generation a `persistentTotal` corresponds to, or undefined when
- * it matches neither. Only meaningful alongside the Fidesmo fingerprint —
- * on its own the figure says nothing about the product.
+ * Fallback generation guess from `persistentTotal`, for cards whose CPLC
+ * wouldn't answer. Install-profile figures — see the baselines above — so
+ * this is only consulted after the IC type has come up empty.
  */
 function apexGenerationFromStorage(persistentTotal?: number): string | undefined {
   if (storageMatches(persistentTotal, APEX_PERSISTENT_TOTAL)) {
@@ -240,18 +255,19 @@ function isJ3R180StorageSize(persistentTotal?: number): boolean {
 }
 
 /**
- * Apex ring generations, keyed by the CPLC IC Type name (see
- * `JCOP_IC_TYPES` in cplc.ts):
+ * Apex generation, keyed by the CPLC IC Type name (see `JCOP_IC_TYPES` in
+ * cplc.ts):
  *
- * - `J3R180` → IC Type 0xD321 → Apex Ring
- * - `J3R452` → IC Type 0xD600 → Apex 2 Ring
+ * - `J3R180` → IC Type 0xD321 → Apex
+ * - `J3R452` → IC Type 0xD600 → Apex 2
  *
- * Only consulted when the Fidesmo fingerprint *and* a payment applet are
- * both present.
+ * Only consulted alongside the Fidesmo fingerprint. Names a generation and
+ * never a form factor — a flex and a ring share silicon. A payment applet is
+ * the one signal that pins the form factor, and appends " Ring".
  */
-const APEX_RING_BY_IC_TYPE: Record<string, string> = {
-  J3R180: 'Apex Ring',
-  J3R452: 'Apex 2 Ring',
+const APEX_GENERATION_BY_IC_TYPE: Record<string, string> = {
+  J3R180: 'Apex',
+  J3R452: 'Apex 2',
 };
 
 /** What `getJavacardImplantName` concluded, and the evidence behind it. */
@@ -280,8 +296,10 @@ interface ImplantIdentity {
  *   the silicon ("J3R180") and let the product matcher offer flexSecure as
  *   one of several J3R180 products, rather than asserting it here.
  *
- * The `historical-bytes` evidence slot is reserved for the check that will
- * eventually break that tie.
+ * The DT historical-byte signature breaks that tie, but only on cards batched
+ * since it existed (`matchDtHistoricalSignature`, applied centrally in
+ * `createTransponder`). A legacy J3R180 has no signature, so the 167736-byte
+ * baseline is all there is — silicon, never a product name.
  *
  * Silicon identity (J3R180 / J3R452, from CPLC) is surfaced in the header,
  * not here — this function names *products*, and returns undefined when only
@@ -325,10 +343,10 @@ export function getJavacardImplantName(
     // payment credential loaded, not a bare payment card. The silicon
     // separates the generations: J3R180 (0xD321) is the Apex, J3R452
     // (0xD600) the Apex 2.
-    const apexRingName = fidesmoDetected
-      ? APEX_RING_BY_IC_TYPE[icTypeName ?? '']
+    const apexGeneration = fidesmoDetected
+      ? APEX_GENERATION_BY_IC_TYPE[icTypeName ?? '']
       : undefined;
-    if (apexRingName) {
+    if (apexGeneration) {
       evidence.push({
         source: 'applet-set',
         matched: true,
@@ -341,7 +359,7 @@ export function getJavacardImplantName(
         matched: true,
         note: `CPLC IC Type identifies ${icTypeName} silicon`,
       });
-      return {name: apexRingName, kind: 'wearable', evidence};
+      return {name: `${apexGeneration} Ring`, kind: 'wearable', evidence};
     }
 
     evidence.push({
@@ -371,15 +389,22 @@ export function getJavacardImplantName(
       note: 'Fidesmo fingerprint present',
     });
 
-    const generation = apexGenerationFromStorage(persistentTotal);
+    // IC type first: it's mask-ROM fixed, so it survives any install profile.
+    const generation = APEX_GENERATION_BY_IC_TYPE[icTypeName ?? ''];
     if (generation) {
+      // The `cplc-ic-type` line above already records the silicon. Generation
+      // only — a ring and a flex share it, so the form factor stays unknown.
+      return {name: generation, kind: 'unknown', evidence};
+    }
+
+    const guessed = apexGenerationFromStorage(persistentTotal);
+    if (guessed) {
       evidence.push({
         source: 'persistent-total',
         matched: true,
-        note: `${persistentTotal} bytes matches ${generation}`,
+        note: `CPLC unreadable; ${persistentTotal} bytes is the ${guessed} install profile`,
       });
-      // Generation only — a ring and a flex report the same capacity.
-      return {name: generation, kind: 'unknown', evidence};
+      return {name: guessed, kind: 'unknown', evidence};
     }
 
     evidence.push({
@@ -388,7 +413,7 @@ export function getJavacardImplantName(
       note:
         persistentTotal === undefined
           ? 'Storage size unavailable'
-          : `${persistentTotal} bytes matches no known Apex generation`,
+          : `${persistentTotal} bytes matches no known Apex install profile`,
     });
     return {name: 'Fidesmo Wearable', kind: 'wearable', evidence};
   }
@@ -411,7 +436,7 @@ export function getJavacardImplantName(
       evidence.push({
         source: 'historical-bytes',
         matched: false,
-        note: 'Not yet implemented — would disambiguate flexSecure',
+        note: 'No DT product signature — legacy J3R180 cards predate it',
       });
       return {name: 'J3R180', kind: 'unknown', evidence};
     }
@@ -582,7 +607,10 @@ async function finishClassicBranch(
   if (!canSendApdus) {
     // Plain Classic with no Layer 4 — nothing further to probe over ISO-DEP.
     // A mirrored WUP-SAK (0x88/0x98) is already flagged by `detectCardModes`
-    // inside `createTransponder`, keylessly.
+    // inside `createTransponder`, keylessly. A Gen4 "Ultimate" wearing a
+    // Classic coat is caught here by the CF …C6 probe (run last: the unknown
+    // command NAKs a genuine Classic and can halt it).
+    const gen4Ultimate = await probeGen4Ultimate();
     return {
       success: true,
       transponder: createTransponder(final.chipType, rawData, {
@@ -590,6 +618,7 @@ async function finishClassicBranch(
         confidence: 'high',
         implementation: final.implementation,
         implementationByte: final.implementationByte,
+        gen4Ultimate,
       }),
     };
   }
@@ -708,6 +737,9 @@ async function runType2Branch(
       console.warn('[Detector] Implant name detection failed:', e);
     }
 
+    // Last, since a non-Gen4 tag NAKs the unknown command (can halt it).
+    const gen4Ultimate = await probeGen4Ultimate();
+
     return {
       success: true,
       transponder: createTransponder(ntagResult.chipType, rawData, {
@@ -718,6 +750,7 @@ async function runType2Branch(
         implantName,
         implementation: ntagResult.implementation,
         implementationByte: ntagResult.implementationByte,
+        gen4Ultimate,
       }),
     };
   }
@@ -729,6 +762,8 @@ async function runType2Branch(
       t.includes('MifareUltralight'),
     );
 
+    const gen4Ultimate = await probeGen4Ultimate();
+
     if (hasMifareUltralightTech) {
       console.log(
         '[Detector] MifareUltralight tech detected, identifying as original Ultralight',
@@ -738,6 +773,7 @@ async function runType2Branch(
         transponder: createTransponder(ChipType.ULTRALIGHT, rawData, {
           memorySize: 48,
           confidence: 'medium',
+          gen4Ultimate,
         }),
       };
     }
@@ -747,6 +783,7 @@ async function runType2Branch(
       success: true,
       transponder: createTransponder(ChipType.NTAG_UNKNOWN, rawData, {
         confidence: 'low',
+        gen4Ultimate,
       }),
     };
   }
@@ -994,13 +1031,38 @@ async function runIso14443_4Branch(
     rawData.atqa,
   );
   if (desfireAtsResult.success && desfireAtsResult.chipType) {
-    return {
-      success: true,
-      transponder: createTransponder(desfireAtsResult.chipType, rawData, {
-        memorySize: desfireAtsResult.storageSize,
-        confidence: 'medium',
-      }),
-    };
+    // The tail of `detectDesfireFromAts` infers NTAG 424 DNA from SAK 0x20 +
+    // ATQA 0x0004 alone — which is also what a *legacy* DT JavaCard looks
+    // like. The DT historical-byte signature checked in 4a½ is recent, so a
+    // J3R180 batched before it carries the factory JCOP bytes (or none),
+    // answers no GetVersion, and would be labelled NTAG 424 DNA here without
+    // ever reaching the ISD/CPLC probe in 4e that identifies it correctly.
+    //
+    // A GlobalPlatform ISD answering a SELECT is proof of a smart-card
+    // substrate, where SAK/ATQA is only a guess — so when the match rests on
+    // SAK/ATQA alone (no historical-byte pattern hit), ask the card first.
+    // Re-running the match without SAK/ATQA is what separates the two.
+    const matchedHistoricalBytes = detectDesfireFromAts(
+      rawData.historicalBytes,
+      rawData.ats,
+    ).success;
+    const isJavaCard =
+      !matchedHistoricalBytes && (await selectIsdAndReadCplc()).isdSelected;
+
+    if (!isJavaCard) {
+      return {
+        success: true,
+        transponder: createTransponder(desfireAtsResult.chipType, rawData, {
+          memorySize: desfireAtsResult.storageSize,
+          confidence: 'medium',
+        }),
+      };
+    }
+    console.log(
+      '[Detector] SAK/ATQA suggested',
+      desfireAtsResult.chipType,
+      'but a GlobalPlatform ISD answered — continuing as JavaCard',
+    );
   }
 
   // 4c: AN10833 Figure 1 — match against the MIFARE Plus historical-byte

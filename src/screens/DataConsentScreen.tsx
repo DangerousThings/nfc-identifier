@@ -1,12 +1,15 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, View, ScrollView} from 'react-native';
 import {Text} from 'react-native-paper';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {DTButton, DTCard, DTColors} from '@dangerousthings/react-native';
+import {DTButton, DTCard} from '@dangerousthings/react-native';
+import {useColors, type AppColors} from '../hooks/useColors';
 import {useDataConsent} from '../hooks/useDataConsent';
 import type {DataConsentScreenProps} from '../types/navigation';
 
 export function DataConsentScreen({navigation}: DataConsentScreenProps) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const {setConsent} = useDataConsent();
 
@@ -81,23 +84,23 @@ export function DataConsentScreen({navigation}: DataConsentScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: DTColors.dark,
+    backgroundColor: c.dark,
   },
   contentContainer: {
     padding: 24,
   },
   title: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     fontWeight: '700',
     letterSpacing: 2,
     textAlign: 'center',
     marginBottom: 16,
   },
   intro: {
-    color: DTColors.light,
+    color: c.light,
     textAlign: 'center',
     marginBottom: 24,
     opacity: 0.9,
@@ -106,13 +109,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   cardTitle: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontWeight: '700',
     letterSpacing: 1,
     marginBottom: 8,
   },
   cardText: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.85,
     lineHeight: 22,
   },

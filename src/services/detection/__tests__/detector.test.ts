@@ -70,7 +70,7 @@ jest.mock('react-native', () => ({
   Platform: {OS: 'android', select: (obj: any) => obj.android ?? obj.default},
 }));
 
-jest.mock('react-native-nfc-manager', () => {
+jest.mock('@dangerousthings/react-native-nfc-manager', () => {
   const respond = (layer: string) => async (cmd: number[]): Promise<Uint8Array> => {
     const response = mockConsumeResponse(layer, cmd);
     if (response === undefined) {
@@ -133,7 +133,8 @@ interface Fixture {
     confidence: 'high' | 'medium' | 'low';
     capabilities?: string[];
     chipName?: string;
-    implantName?: string;
+    /** `null` asserts the detector named no product (JSON can't say undefined). */
+    implantName?: string | null;
     /** Credential kinds the card must expose, order-insensitive. */
     credentialKinds?: string[];
     /** Labels expected in the "Emulation Supported" UI block. */
@@ -145,9 +146,9 @@ interface Fixture {
     /** Form factor of the named product — 'implant' must never be a ring. */
     productKind?: string;
     /** Official DT product name from the historical-byte signature. */
-    dtProductName?: string;
+    dtProductName?: string | null;
     /** Official DT product kind: 'implant' | 'card'. */
-    dtProductKind?: string;
+    dtProductKind?: string | null;
   };
 }
 
@@ -216,7 +217,7 @@ describe('detectChip — fixture suite', () => {
 
       if (fixture.expectedDetection.implantName !== undefined) {
         expect(result.transponder?.implantName).toBe(
-          fixture.expectedDetection.implantName,
+          fixture.expectedDetection.implantName ?? undefined,
         );
       }
 
@@ -257,13 +258,13 @@ describe('detectChip — fixture suite', () => {
 
       if (fixture.expectedDetection.dtProductName !== undefined) {
         expect(result.transponder?.dtProduct?.name).toBe(
-          fixture.expectedDetection.dtProductName,
+          fixture.expectedDetection.dtProductName ?? undefined,
         );
       }
 
       if (fixture.expectedDetection.dtProductKind !== undefined) {
         expect(result.transponder?.dtProduct?.kind).toBe(
-          fixture.expectedDetection.dtProductKind,
+          fixture.expectedDetection.dtProductKind ?? undefined,
         );
       }
 

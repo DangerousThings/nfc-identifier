@@ -286,15 +286,20 @@ async function probeApplets(): Promise<string[]> {
     // Applet not present
   }
 
-  // Try FIDO2 applet
-  try {
-    const response = await sendIsoDepCommand(selectAid(KNOWN_AIDS.fido2));
-    const parsed = parseApduResponse(response);
-    if (parsed.isSuccess) {
-      found.push('FIDO2');
+  // Try FIDO2 applet. Two AIDs: the CTAP-spec one first (what a
+  // Fidesmo-installed FIDO2 on an Apex / Apex 2 registers, and a prefix of
+  // most other instances), then DT's own longer instance AID for cards that
+  // only match AIDs exactly.
+  for (const aid of [KNOWN_AIDS.fido2, KNOWN_AIDS.fido2Instance]) {
+    try {
+      const response = await sendIsoDepCommand(selectAid(aid));
+      if (parseApduResponse(response).isSuccess) {
+        found.push('FIDO2');
+        break;
+      }
+    } catch {
+      // Applet not present at this AID — try the next.
     }
-  } catch {
-    // Applet not present
   }
 
   // Try VivoKey OTP applet

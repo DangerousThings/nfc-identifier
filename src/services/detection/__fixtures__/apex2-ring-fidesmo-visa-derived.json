@@ -96,7 +96,7 @@
     },
     {
       "layer": "isoDep",
-      "command": "00a4040009a0000006472f00010100",
+      "command": "00a4040008a0000006472f000100",
       "response": "5532465f56329000"
     },
     {
@@ -166,6 +166,7 @@
     "icTypeName": "J3R452",
     "implantName": "Apex 2 Ring",
     "installedApplets": [
+      "FIDO2",
       "Fidesmo",
       "Payment (PPSE)",
       "Visa"
@@ -173,5 +174,8 @@
     "productKind": "wearable"
   },
   "derivedFrom": "j3r452-javacard-applets-real.json",
-  "derivationNotes": "Not a raw capture. Built from the real J3R452 scan by patching three SELECT responses to success: Fidesmo Platform AID, PPSE, and the Visa credit AID. Everything else \u2014 CPLC (IC type 0xD600), DESFire GetVersion, JavaCard Memory, and the remaining applet probes \u2014 is the untouched real exchange. Guards the branch-4a wiring: an Apex answers DESFire GetVersion, so it is named in the credential-sweep branch, not the pure-JavaCard one. Replace with a genuine capture from an Apex 2 Ring when one is available."
+  "derivationNotes": "Not a raw capture. Built from the real J3R452 scan by patching three SELECT responses to success: Fidesmo Platform AID, PPSE, and the Visa credit AID. Everything else \u2014 CPLC (IC type 0xD600), DESFire GetVersion, JavaCard Memory, and the remaining applet probes \u2014 is the untouched real exchange. Guards the branch-4a wiring: an Apex answers DESFire GetVersion, so it is named in the credential-sweep branch, not the pure-JavaCard one. Replace with a genuine capture from an Apex 2 Ring when one is available.",
+  "anonymizationNotes": [
+    "FIDO2 answers the CTAP-spec AID A0000006472F0001 (what Fidesmo installs on an Apex), not DT's longer FIDO2.cap instance AID."
+  ]
 }

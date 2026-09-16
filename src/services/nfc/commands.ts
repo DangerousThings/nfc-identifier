@@ -4,7 +4,10 @@
  */
 
 import {Platform} from 'react-native';
-import NfcManager, {NfcTech} from 'react-native-nfc-manager';
+import NfcManager, {
+  NfcTech,
+  type RegisterTagEventOpts,
+} from '@dangerousthings/react-native-nfc-manager';
 import * as fixtureRecorder from '../detection/fixtureRecorder';
 
 export {NfcTech};
@@ -286,8 +289,20 @@ export const KNOWN_AIDS = {
   openPgp: [0xd2, 0x76, 0x00, 0x01, 0x24, 0x01],
   /** FIDO U2F applet (CTAP1) */
   fido: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x02],
-  /** FIDO2/WebAuthn applet (CTAP2) */
-  fido2: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01, 0x01],
+  /**
+   * FIDO2/WebAuthn applet (CTAP2) — the AID every NFC authenticator must
+   * answer (CTAP 2.1 §11.2.1, "Applet selection"), and the one declared in
+   * the iOS `select-identifiers` entitlement. A Fidesmo-installed FIDO2 (Apex
+   * / Apex 2) registers exactly this; SELECT matches by AID *prefix*, so it
+   * also hits longer instance AIDs like DT's below.
+   */
+  fido2: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01],
+  /**
+   * The instance AID of DT's own FIDO2.cap (verified against the CAP's Applet
+   * component). Tried only when the spec AID above draws a blank, for cards
+   * that don't do partial-AID selection.
+   */
+  fido2Instance: [0xa0, 0x00, 0x00, 0x06, 0x47, 0x2f, 0x00, 0x01, 0x01],
   /** NFC Forum Type 4 Tag NDEF applet */
   ndefTag: [0xd2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01],
   /** VivoKey OTP applet (full AID from GP Qt project) */
@@ -546,7 +561,7 @@ export async function sendIsoDepCommand(command: number[]): Promise<number[]> {
  */
 export async function requestTechnology(
   tech: NfcTech | NfcTech[],
-  options?: {alertMessage?: string},
+  options?: RegisterTagEventOpts,
 ): Promise<void> {
   await NfcManager.requestTechnology(tech, options);
 }

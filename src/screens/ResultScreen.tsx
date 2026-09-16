@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { StyleSheet, View, ScrollView, Linking, TouchableOpacity, Animated, LayoutAnimation, UIManager, Platform } from 'react-native';
 
 // Enable LayoutAnimation on Android
@@ -7,7 +7,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { Button, Text, Surface, Divider, Chip } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DTCard, DTButton, DTColors, DTLabel, DTChip } from '@dangerousthings/react-native';
+import { usePreventRemove } from '@react-navigation/native';
+import { HeaderBackButton } from '@react-navigation/elements';
+import { DTCard, DTButton, DTLabel, DTChip } from '@dangerousthings/react-native';
+import { useColors, type AppColors } from '../hooks/useColors';
 
 // Animated section wrapper for staggered entry
 interface AnimatedSectionProps {
@@ -49,32 +52,81 @@ import { matchChipToProducts, getMatchSummary } from '../services/matching';
 import { Product, ProductMatch, MatchWarning } from '../types/products';
 
 /** Map a MatchWarning severity to its display colour. */
-function matchWarningColor(warning: MatchWarning): string {
+function matchWarningColor(warning: MatchWarning, colors: AppColors): string {
   switch (warning.severity) {
     case 'info':
-      return DTColors.modeNormal;
+      return colors.modeNormal;
     case 'caution':
-      return DTColors.modeEmphasis;
+      return colors.modeEmphasis;
     case 'warning':
-      return DTColors.modeWarning;
+      return colors.modeWarning;
   }
 }
 import { getChipInfo, getChipFamilyInfo, getSecurityLevelDescription } from '../data/chipInfo';
 import { getChipFamily } from '../types/detection';
 import { useDataConsent } from '../hooks/useDataConsent';
 import { useFixtureCapture } from '../hooks/useFixtureCapture';
+import { useSwipeBack } from '../hooks/useSwipeBack';
 import { sampleCollector } from '../services/motion';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
 import { emulatedCredentials } from '../services/detection/credentials';
 import * as Clipboard from 'expo-clipboard';
 
 export function ResultScreen({ route, navigation }: ResultScreenProps) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { tagData, transponder } = route.params;
   const [showChipInfo, setShowChipInfo] = useState(false);
   const chipInfoArrowRotation = useRef(new Animated.Value(0)).current;
   const { consentStatus } = useDataConsent();
   const { enabled: fixtureCaptureEnabled } = useFixtureCapture();
+  const { action: swipeBackAction } = useSwipeBack();
   const insets = useSafeAreaInsets();
+
+  // "Swipe back" setting. Only the back *gesture* follows it; the header arrow
+  // keeps popping the stack. Which navigation action the gesture produces is
+  // platform-specific, and it's the inverse on each:
+  //
+  //   iOS     — the swipe is a native dismissal → POP. The header arrow would
+  //             send POP too, so it's replaced below with our own button
+  //             dispatching GO_BACK.
+  //   Android — native-stack has no swipe of its own; the system back gesture
+  //             is the platform back event, which React Navigation turns into
+  //             GO_BACK. The native header arrow sends POP and is left alone.
+  //
+  // On Android the hardware back *button* is the same event as the gesture, so
+  // it necessarily follows the setting too — the platform doesn't separate them.
+  const handleSwipeBack = swipeBackAction !== 'previous-result';
+  const gestureAction = Platform.OS === 'ios' ? 'POP' : 'GO_BACK';
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerLeft:
+        handleSwipeBack && Platform.OS === 'ios'
+          ? (props: React.ComponentProps<typeof HeaderBackButton>) => (
+              <HeaderBackButton
+                {...props}
+                label="Scan"
+                onPress={() => navigation.goBack()}
+              />
+            )
+          : undefined,
+    });
+  }, [navigation, handleSwipeBack]);
+
+  usePreventRemove(handleSwipeBack, ({ data }) => {
+    if (data.action.type !== gestureAction) {
+      // Header arrow or an explicit navigate — let it run untouched.
+      navigation.dispatch(data.action);
+      return;
+    }
+    if (swipeBackAction === 'restart-scan') {
+      // Replace rather than push, so repeated scans don't stack up.
+      navigation.replace('Scan');
+    } else {
+      navigation.popToTop();
+    }
+  });
 
   // Periodic idle baseline capture for motion data collection
   useEffect(() => {
@@ -241,18 +293,18 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
 
   // Determine card colors based on detection
   const getCloneabilityColor = () => {
-    if (!transponder) return DTColors.light;
-    return transponder.isCloneable ? DTColors.modeSuccess : DTColors.modeWarning;
+    if (!transponder) return colors.light;
+    return transponder.isCloneable ? colors.modeSuccess : colors.modeWarning;
   };
 
   const getConfidenceLabel = () => {
     if (!transponder) return null;
-    const colors = {
-      high: DTColors.modeSuccess,
-      medium: DTColors.modeEmphasis,
-      low: DTColors.modeWarning,
+    const byConfidence = {
+      high: colors.modeSuccess,
+      medium: colors.modeEmphasis,
+      low: colors.modeWarning,
     };
-    return { color: colors[transponder.confidence], label: `${transponder.confidence.toUpperCase()} CONFIDENCE` };
+    return { color: byConfidence[transponder.confidence], label: `${transponder.confidence.toUpperCase()} CONFIDENCE` };
   };
 
   return (
@@ -337,6 +389,14 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                   variant="normal">
                   {transponder.family}
                 </DTChip>
+                {/* Ultimate gen4 magic tag — proven by the CF …C6 probe. Sits
+                    with the other identity chips rather than in a separate
+                    multi-mode card below. */}
+                {transponder.cardModeInfo?.modeType === 'ultimate_gen4' && (
+                  <DTChip variant="emphasis">
+                    UG4
+                  </DTChip>
+                )}
                 {getConfidenceLabel() && (
                   <DTChip
                     variant='other'
@@ -520,7 +580,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
 
               {showChipInfo && (
                 <>
-                  <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
+                  <Divider style={[styles.divider, { backgroundColor: colors.modeOther }]} />
 
                   {/* Family description */}
                   {chipFamilyInfo && (
@@ -558,10 +618,10 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                             {
                               color:
                                 chipInfo.securityLevel === 'high'
-                                  ? DTColors.modeSuccess
+                                  ? colors.modeSuccess
                                   : chipInfo.securityLevel === 'medium'
-                                    ? DTColors.modeEmphasis
-                                    : DTColors.modeWarning,
+                                    ? colors.modeEmphasis
+                                    : colors.modeWarning,
                             },
                           ]}>
                           {chipInfo.securityLevel.toUpperCase()}
@@ -644,7 +704,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
                     variant="bodySmall"
                     style={[
                       styles.matchWarning,
-                      { color: matchWarningColor(warning) },
+                      { color: matchWarningColor(warning, colors) },
                     ]}>
                     ⚠️ {warning.message}
                   </Text>
@@ -676,7 +736,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               <Text variant="labelLarge" style={styles.noMatchLabel}>
                 NO DIRECT MATCH
               </Text>
-              <Divider style={[styles.divider, { backgroundColor: DTColors.modeOther }]} />
+              <Divider style={[styles.divider, { backgroundColor: colors.modeOther }]} />
 
               <Text variant="bodyMedium" style={styles.noMatchText}>
                 {getMatchSummary(matchResult, transponder.chipName)}
@@ -701,13 +761,14 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
         {/* Multi-Mode Card — Plus security levels, magic/clone indicators.
             Deliberately NOT labelled "SAK swap": that card is above and
             comes from an actual Block 0 comparison. */}
-        {transponder?.cardModeInfo?.hasMultipleModes && (
+        {transponder?.cardModeInfo?.hasMultipleModes &&
+          transponder.cardModeInfo.modeType !== 'ultimate_gen4' && (
           <AnimatedSection delay={delays.sakSwap}>
             <Surface style={styles.sakSwapCard} elevation={1}>
               <Text variant="labelLarge" style={styles.sakSwapLabel}>
                 MULTI-MODE CARD
               </Text>
-              <Divider style={[styles.divider, { backgroundColor: DTColors.modeEmphasis }]} />
+              <Divider style={[styles.divider, { backgroundColor: colors.modeEmphasis }]} />
 
               <Text variant="bodyLarge" style={styles.sakSwapType}>
                 {transponder.cardModeInfo.modeType?.replace(/_/g, ' ').toUpperCase()}
@@ -805,7 +866,7 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
               <Text variant="labelLarge" style={styles.noDetectionLabel}>
                 CHIP NOT IDENTIFIED
               </Text>
-              <Divider style={[styles.divider, { backgroundColor: DTColors.modeWarning }]} />
+              <Divider style={[styles.divider, { backgroundColor: colors.modeWarning }]} />
               <Text variant="bodyMedium" style={styles.noDetectionText}>
                 Unable to identify this chip type. It may be unsupported or require advanced detection.
               </Text>
@@ -881,10 +942,10 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: DTColors.dark,
+    backgroundColor: c.dark,
   },
   content: {
     padding: 24,
@@ -894,17 +955,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: DTColors.modeSuccess,
+    borderColor: c.modeSuccess,
     padding: 20,
     marginBottom: 20,
   },
   identificationLabel: {
-    color: DTColors.modeSuccess,
+    color: c.modeSuccess,
     letterSpacing: 2,
     marginBottom: 12,
   },
   chipName: {
-    color: DTColors.light,
+    color: c.light,
     fontWeight: 'bold',
     marginBottom: 12,
   },
@@ -918,7 +979,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   familyChipText: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     fontSize: 12,
   },
   confidenceChip: {
@@ -935,15 +996,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   detailLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     letterSpacing: 1,
   },
   detailValue: {
-    color: DTColors.light,
+    color: c.light,
   },
   cloneabilityNote: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.5,
     fontStyle: 'italic',
     marginTop: 8,
@@ -953,22 +1014,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: DTColors.modeEmphasis,
+    borderColor: c.modeEmphasis,
     padding: 20,
     marginBottom: 20,
   },
   sakSwapLabel: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 12,
   },
   sakSwapType: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontWeight: 'bold',
     marginBottom: 8,
   },
   sakSwapDescription: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.9,
     marginBottom: 12,
   },
@@ -976,7 +1037,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sakSwapNote: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.7,
     marginBottom: 4,
   },
@@ -985,17 +1046,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeNormal,
+    borderColor: c.modeNormal,
     padding: 20,
     marginBottom: 20,
   },
   cardLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 2,
     marginBottom: 12,
   },
   divider: {
-    backgroundColor: DTColors.modeNormal,
+    backgroundColor: c.modeNormal,
     opacity: 0.3,
     marginBottom: 16,
   },
@@ -1003,17 +1064,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   dataLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     marginBottom: 4,
     letterSpacing: 1,
   },
   dataValue: {
-    color: DTColors.light,
+    color: c.light,
     fontFamily: 'monospace',
   },
   noData: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     fontStyle: 'italic',
   },
@@ -1022,27 +1083,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeWarning,
+    borderColor: c.modeWarning,
     padding: 20,
     marginBottom: 20,
   },
   noDetectionLabel: {
-    color: DTColors.modeWarning,
+    color: c.modeWarning,
     letterSpacing: 2,
     marginBottom: 12,
   },
   noDetectionText: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     marginBottom: 12,
   },
   forumButton: {
-    borderColor: DTColors.modeWarning,
+    borderColor: c.modeWarning,
     borderWidth: 1,
     marginTop: 8,
   },
   forumButtonLabel: {
-    color: DTColors.modeWarning,
+    color: c.modeWarning,
     fontSize: 12,
   },
   // Products Card
@@ -1050,24 +1111,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: DTColors.modeEmphasis,
+    borderColor: c.modeEmphasis,
     padding: 20,
     marginBottom: 20,
   },
   productsLabel: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 12,
   },
   matchSummary: {
-    color: DTColors.light,
+    color: c.light,
     marginBottom: 16,
   },
   productItem: {
     backgroundColor: '#111111',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeNormal,
+    borderColor: c.modeNormal,
     padding: 16,
     marginBottom: 12,
   },
@@ -1078,31 +1139,31 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   productName: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontWeight: 'bold',
   },
   formFactorChip: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: DTColors.modeNormal,
+    borderColor: c.modeNormal,
     height: 35,
   },
   formFactorChipText: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     fontSize: 10,
   },
   productDescription: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     marginBottom: 8,
   },
   productNote: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     fontStyle: 'italic',
     marginBottom: 8,
   },
   evMismatchWarning: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     backgroundColor: 'rgba(255, 255, 0, 0.1)',
     padding: 8,
     borderRadius: 4,
@@ -1118,16 +1179,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   productFeature: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.7,
     marginBottom: 2,
   },
   productButton: {
-    borderColor: DTColors.modeEmphasis,
+    borderColor: c.modeEmphasis,
     borderWidth: 1,
   },
   productButtonLabel: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontSize: 12,
   },
   // No Match Card
@@ -1135,27 +1196,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeOther,
+    borderColor: c.modeOther,
     padding: 20,
     marginBottom: 20,
   },
   noMatchLabel: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     letterSpacing: 2,
     marginBottom: 12,
   },
   noMatchText: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     marginBottom: 12,
   },
   familyMatchesLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     marginBottom: 8,
   },
   familyMatchItem: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     marginBottom: 4,
   },
   // Conversion Card
@@ -1163,23 +1224,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeOther,
+    borderColor: c.modeOther,
     padding: 20,
     marginBottom: 32,
     alignItems: 'center',
   },
   conversionText: {
-    color: DTColors.light,
+    color: c.light,
     textAlign: 'center',
     marginBottom: 16,
     opacity: 0.9,
   },
   conversionButton: {
-    borderColor: DTColors.modeOther,
+    borderColor: c.modeOther,
     borderWidth: 2,
   },
   conversionButtonLabel: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     letterSpacing: 1,
   },
   // Actions
@@ -1188,16 +1249,16 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   actionButton: {
-    borderColor: DTColors.modeNormal,
+    borderColor: c.modeNormal,
     borderWidth: 2,
     width: '100%',
   },
   actionButtonLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 2,
   },
   homeLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
   },
   // Chip Info Card
@@ -1205,7 +1266,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeOther,
+    borderColor: c.modeOther,
     padding: 20,
     marginBottom: 20,
   },
@@ -1215,21 +1276,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chipInfoLabel: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     letterSpacing: 2,
   },
   expandIndicator: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     fontSize: 12,
   },
   chipFamilyDescription: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     marginBottom: 12,
     lineHeight: 22,
   },
   chipDescription: {
-    color: DTColors.light,
+    color: c.light,
     marginBottom: 16,
     lineHeight: 22,
   },
@@ -1238,28 +1299,28 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   chipInfoRowLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     marginRight: 8,
   },
   chipInfoRowValue: {
-    color: DTColors.light,
+    color: c.light,
   },
   securityNote: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.5,
     fontStyle: 'italic',
     marginTop: 4,
     marginBottom: 16,
   },
   chipInfoSectionLabel: {
-    color: DTColors.modeOther,
+    color: c.modeOther,
     letterSpacing: 1,
     marginTop: 8,
     marginBottom: 8,
   },
   chipInfoListItem: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     marginBottom: 4,
   },
@@ -1267,7 +1328,7 @@ const styles = StyleSheet.create({
   // Small caption above the product headline. Left-aligned to sit directly
   // over `chipName`, which is also left-aligned.
   productKindTag: {
-    color: DTColors.modeSuccess,
+    color: c.modeSuccess,
     letterSpacing: 2,
     marginBottom: 4,
   },
@@ -1276,19 +1337,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 255, 255, 0.08)',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeNormal,
+    borderColor: c.modeNormal,
     padding: 12,
     marginTop: 12,
     marginBottom: 8,
     alignItems: 'center',
   },
   temperatureLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 2,
     marginBottom: 4,
   },
   temperatureValue: {
-    color: DTColors.light,
+    color: c.light,
     fontWeight: 'bold',
     fontFamily: 'monospace',
   },
@@ -1300,7 +1361,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   appletsLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 2,
     marginBottom: 8,
   },
@@ -1320,7 +1381,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   storageLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 2,
     marginBottom: 8,
   },
@@ -1333,7 +1394,7 @@ const styles = StyleSheet.create({
   },
   storageBarFill: {
     height: '100%',
-    backgroundColor: DTColors.modeNormal,
+    backgroundColor: c.modeNormal,
     borderRadius: 4,
   },
   storageDetails: {
@@ -1341,7 +1402,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   storageText: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
     fontSize: 11,
   },
@@ -1350,19 +1411,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 0, 0.1)',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: DTColors.modeEmphasis,
+    borderColor: c.modeEmphasis,
     padding: 12,
     marginTop: 12,
     marginBottom: 8,
     alignItems: 'center',
   },
   paymentDeviceLabel: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 4,
   },
   paymentDeviceValue: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontWeight: 'bold',
     letterSpacing: 1,
   },

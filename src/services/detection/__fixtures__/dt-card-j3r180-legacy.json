@@ -1,0 +1,129 @@
+{
+  "name": "Legacy J3R180 — DT card batched before the historical-byte signature",
+  "rawData": {
+    "uid": "04180011223344",
+    "sak": 32,
+    "atqa": "00:04",
+    "ats": "0031c173c84000009000",
+    "historicalBytes": "0031c173c84000009000",
+    "techTypes": [
+      "android.nfc.tech.IsoDep",
+      "android.nfc.tech.NfcA"
+    ]
+  },
+  "apduCalls": [
+    {
+      "layer": "isoDep",
+      "command": "9060000000",
+      "response": "6e00"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d32147910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040008a00000000300000000",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "80ca9f7f00",
+      "response": "9f7f2a4790d32147910000000000000000000000000000000000000000000000000000000000000000000000009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ca0000008466d656d6f72790100",
+      "response": "0001a2b400028f380ec001009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ba00000061702000200000100",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ba00000061702000200000200",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ca0000006170200090001010100",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ca0000008466d656d6f72790100",
+      "response": "0001a2b400028f380ec001009000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040006d2760001240100",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040009a0000006472f00010100",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000da000000527210101415045580100",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a4040007d276000085010100",
+      "response": "9000"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000e325041592e5359532e444446303100",
+      "response": "6a82"
+    },
+    {
+      "layer": "isoDep",
+      "command": "00a404000ca0000008466d656d6f72790100",
+      "response": "0001a2b400028f380ec001009000"
+    }
+  ],
+  "apduResponses": {
+    "isoDep:9060000000": "6e00",
+    "isoDep:00a4040008a00000000300000000": "9000",
+    "isoDep:80ca9f7f00": "9f7f2a4790d32147910000000000000000000000000000000000000000000000000000000000000000000000009000",
+    "isoDep:00a404000ca0000008466d656d6f72790100": "0001a2b400028f380ec001009000",
+    "isoDep:00a404000ba00000061702000200000100": "6a82",
+    "isoDep:00a404000ba00000061702000200000200": "6a82",
+    "isoDep:00a404000ca0000006170200090001010100": "6a82",
+    "isoDep:00a4040006d2760001240100": "6a82",
+    "isoDep:00a4040009a0000006472f00010100": "9000",
+    "isoDep:00a404000da000000527210101415045580100": "9000",
+    "isoDep:00a4040007d276000085010100": "9000",
+    "isoDep:00a404000e325041592e5359532e444446303100": "6a82"
+  },
+  "anonymizationNotes": [
+    "Derived fixture, not a captured scan: models a DT J3R180 provisioned before the batching tool wrote the DT historical bytes, so the card still answers with the factory JCOP contactless historical bytes (0031C173C840000090 00).",
+    "CPLC copied from dt-implant-flexsecure.json (IC Type 0xD321 = J3R180); serial fields zeroed.",
+    "JavaCard Memory persistentTotal = 0x00028F38 (167736) — the 180-class DT baseline.",
+    "Applet set is the DT batch: javacard-memory, vivokey-otp, NDEF, FIDO2. No Fidesmo, no payment."
+  ],
+  "expectedDetection": {
+    "type": "JCOP4",
+    "confidence": "medium",
+    "icTypeName": "J3R180",
+    "installedApplets": [
+      "JavaCard Memory",
+      "VivoKey OTP",
+      "NDEF",
+      "FIDO2"
+    ],
+    "implantName": null,
+    "dtProductName": null
+  }
+}
