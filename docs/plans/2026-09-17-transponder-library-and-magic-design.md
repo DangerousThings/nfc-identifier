@@ -108,6 +108,18 @@ Narrowing on `chip` exposes only that chip's methods:
 Each method builds the frame, transceives, validates length + ACK/NAK, returns
 parsed data. A 4-bit NAK throws `NfcNakError` with a named code.
 
+**Universal `readUserMemory(opts?)`.** One `abstract` method on every
+transponder dumps user memory sector-aware, so callers never special-case the
+chip: `Promise<MemorySector[]>` where `MemorySector = {sector, blocks:
+{address, bytes}[]}`. Type 2 returns one sector (pages, via FAST_READ or a read
+loop); NTAG I²C returns one sector per bank (loops `sectorSelect`); Classic
+returns one per Classic sector, authing with `opts.keys` (or default
+`FFFFFFFFFFFF`) and omitting sectors that fail; ISO 15693 / NTAG5 return one
+sector of blocks (READ_MULTIPLE_BLOCK). The crypto/file-based families
+(DESFire, Plus, JavaCard, DNA) and the `GenericTransponder` fallback return
+`[]`. `opts` (`{keys?, keyType?}`) is honored only by Classic; other families
+ignore it.
+
 ### Memory map + config registers
 
 `memory.regions`: static per-chip `{name, start, end, unit, access, note}`
