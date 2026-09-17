@@ -26,7 +26,7 @@ web-build/
 !.env.example
 
 # EAS / Expo secrets
-credentials.json
+credentials.
 secrets.json
 *.p8
 *.p12
@@ -185,3 +185,7 @@ AN10833.pdf
 
 # Motion / accelerometer data uploads (local, not for VCS)
 accel_data/
+
+.npmrc
+# vendored packages are consumed from git.dngr.us now
+/vendor/
