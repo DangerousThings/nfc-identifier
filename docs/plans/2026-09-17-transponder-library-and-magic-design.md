@@ -158,6 +158,24 @@ so GET_VERSION reports the emulated chip. I²C presets and 10-byte UIDs ship
 `magicPassword` option lets a caller probe a UG4 whose backdoor password was
 changed (else it's missed — Magic Commander already does this).
 
+**UG4 relocates PWD/PACK — the magic handle repoints the emulated chip's
+password pages.** Per the notes, a UMC (06A0/6666 firmware) stores the password
+at page **0xE5** (NTAG216/I²C location) and the PACK at page **0x13** (NTAG210 /
+UL EV1 location) *regardless of the chip it emulates*. So an emulated `Ntag215`
+whose native PWD/PACK are `0x85`/`0x86` would read/write the wrong pages. To
+handle this, the Type 2 command classes expose the PWD/PACK page addresses as
+**overridable instance fields** (`pwdPage`/`packPage`) — defined *only* on chips
+that actually support password protection (NTAG21x, UL EV1, NTAG I²C). When the
+waterfall detects a Gen4, it repoints those fields to the UG4's fixed pages
+before returning, **only if the emulated chip defines them**; if the emulated
+coat has no PWD/PACK feature (plain UL, UL-C's 3DES, a Classic's Crypto1), the
+override is a no-op and no password methods are grafted on. So
+`setPassword`/`setPack`/`pwdAuth` route correctly on a UG4-as-NTAG215 with no
+method rebinding, and a UG4-as-plain-UL stays password-less. Scope: PWD/PACK
+only (the sole relocation the notes document); CFG0/CFG1 (AUTH0/ACCESS) are left
+at the emulated chip's native pages and flagged unverified. Gated to 06A0/6666;
+the older 03A0 is left native and flagged unverified until sniffed.
+
 ### The waterfall
 
 Ports the identifier app's AN10833 order unchanged: tag info → ISO-DEP branch
