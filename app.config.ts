@@ -32,7 +32,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-splash-screen',
       {
+        // SDK 57's expo-splash-screen references @drawable/splashscreen_logo
+        // unconditionally but only generates it when an image is set, so a
+        // background-only splash fails to link. Use the app icon on black.
         backgroundColor: '#000000',
+        image: './assets/icon.png',
+        imageWidth: 180,
       },
     ],
     [
