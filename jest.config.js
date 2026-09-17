@@ -1,5 +1,5 @@
 module.exports = {
-  preset: 'react-native',
+  preset: '@react-native/jest-preset',
   setupFiles: ['<rootDir>/jest.setup.js'],
   // Sibling git worktrees live under .worktrees/ (git-ignored). Their tests
   // and node_modules must not be crawled or run from this checkout.

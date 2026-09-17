@@ -9,10 +9,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
-  newArchEnabled: true,
-  splash: {
-    backgroundColor: '#000000',
-  },
   ios: {
     supportsTablet: false,
     bundleIdentifier: 'com.dangerousthings.nfcidentifier',
@@ -33,6 +29,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     blockedPermissions: ['android.permission.ACTIVITY_RECOGNITION'],
   },
   plugins: [
+    [
+      'expo-splash-screen',
+      {
+        backgroundColor: '#000000',
+      },
+    ],
     [
       '@dangerousthings/react-native-nfc-manager',
       {
@@ -82,6 +84,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
       },
     ],
+    'expo-status-bar',
     ...(IS_FDROID ? [] : ['expo-updates']),
   ],
   updates: IS_FDROID
