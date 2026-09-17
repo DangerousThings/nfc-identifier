@@ -158,23 +158,48 @@ so GET_VERSION reports the emulated chip. I²C presets and 10-byte UIDs ship
 `magicPassword` option lets a caller probe a UG4 whose backdoor password was
 changed (else it's missed — Magic Commander already does this).
 
-**UG4 relocates PWD/PACK — the magic handle repoints the emulated chip's
-password pages.** Per the notes, a UMC (06A0/6666 firmware) stores the password
-at page **0xE5** (NTAG216/I²C location) and the PACK at page **0x13** (NTAG210 /
-UL EV1 location) *regardless of the chip it emulates*. So an emulated `Ntag215`
-whose native PWD/PACK are `0x85`/`0x86` would read/write the wrong pages. To
-handle this, the Type 2 command classes expose the PWD/PACK page addresses as
-**overridable instance fields** (`pwdPage`/`packPage`) — defined *only* on chips
-that actually support password protection (NTAG21x, UL EV1, NTAG I²C). When the
-waterfall detects a Gen4, it repoints those fields to the UG4's fixed pages
-before returning, **only if the emulated chip defines them**; if the emulated
-coat has no PWD/PACK feature (plain UL, UL-C's 3DES, a Classic's Crypto1), the
-override is a no-op and no password methods are grafted on. So
-`setPassword`/`setPack`/`pwdAuth` route correctly on a UG4-as-NTAG215 with no
-method rebinding, and a UG4-as-plain-UL stays password-less. Scope: PWD/PACK
-only (the sole relocation the notes document); CFG0/CFG1 (AUTH0/ACCESS) are left
-at the emulated chip's native pages and flagged unverified. Gated to 06A0/6666;
-the older 03A0 is left native and flagged unverified until sniffed.
+**UG4 relocates PWD/PACK, and mirrors it — the emulated chip's password methods
+delegate to the gen4 handle.** Per Magic Commander's phone-verified gen4 code, a
+UMC does NOT just relocate PWD/PACK to fixed pages — it also **mirrors** them:
+the password must be written to **both 0xE5 and 0xF0** (the reader-side PWD_AUTH
+reads it from 0xF0), and the PACK to **0xF1 as well as** the revision's PACK page
+(**0xE6**, or **0x13** on 06A0/6666 — determined at runtime by `CF CC`). A simple
+"repoint `pwdPage`/`packPage`" (the earlier plan) can't express the mirror. So
+the model is: when the sweep detects a Gen4, the emulated chip's `setPassword`/
+`setPack` are **overridden to delegate to the gen4 handle's mirrored writes**
+(`gen4.setPassword` → 0xE5+0xF0, `gen4.setPack` → rev-page+0xF1), **only if the
+emulated chip supports password protection** (NTAG21x/UL EV1/NTAG I²C — the ones
+that define `pwdPage`/`packPage`). If the emulated coat has no PWD/PACK feature
+(plain UL, UL-C's 3DES, a Classic's Crypto1), the override is a no-op. So a
+UG4-as-NTAG215 gets correct mirrored password writes; a UG4-as-plain-UL stays
+password-less. Scope: PWD/PACK only; CFG0/CFG1 left native, flagged unverified.
+
+### Magic detection is capability-gated and behavioral
+
+The sweep (ported from Magic Commander's `fingerprint()` + `caps`) is **opt-in**
+(`identify({probeMagic, platform, rawAvailable, magicPassword})`), **capability-
+gated**, and **reconnects (close→connect) before each probe** (a NAK wedges the
+next). Realities baked in:
+- **iOS supports no magic** — CoreNFC can't send the raw frames any backdoor
+  needs, so the gate returns an empty set and the sweep is a no-op on iOS.
+- **gen1a needs the BYOK-OS RawReader** (its unlock is a 7-bit `0x40` frame with
+  no stock-Android path); gen2/gen3/gen4/magic-ul/magic-icode run on stock
+  Android. gen2 additionally needs the platform `mfc` tech (Crypto1 in the
+  controller).
+- **Behavioral probes, not SAK-trust:** magic-ul is detected by an
+  unauthenticated `0x30` READ (a card that answers IS NTAG/UL whatever its SAK —
+  catches a UG4-emulating-NTAG-with-Classic-SAK); gen2/CUID and magic-icode by a
+  **no-op write of the tag's own bytes** (only a magic clone ACKs it — safe,
+  non-destructive). A Classic-SAK (0x08/0x18) that answers no backdoor is
+  reported as plain Classic (a stock-Android controller drops raw CF on it).
+- **gen4 phone constraints:** the CF status word is at the **front** of a CF
+  response (not trailing); a raw CF frame is honoured only as the **first frame
+  after SELECT** (a CF after `0xA2` T2T writes is ignored → tag loss), so
+  reconfigure issues all CF up front then only T2T writes; UID writes are
+  **coat-dependent** (Ultralight coat = `0xA2` page writes, Classic coat = `CF
+  CD` block 0); and a Classic-emulating UG4 is set to **SAK 0x28 + JCOP dual ATS**
+  by default so its backdoor stays reachable over NfcA on a phone (native Classic
+  SAK strands it).
 
 ### The waterfall
 
