@@ -43,6 +43,77 @@ For JCOP4/J3R180 identification:
 3. Parse CPLC for IC fabricator (NXP = 4790), card type, OS ID
 4. Probe AIDs for installed applets (user may provide DT-specific AIDs)
 
+### Ultimate Gen4 (UG4) Magic Detection
+
+Gen4 / GTU "Ultimate" magic tags emulate MIFARE Classic **or** Type 2
+(NTAG / Ultralight) over ISO 14443-3A, and answer a vendor backdoor command
+genuine chips do not:
+
+```
+CF <4-byte password> <cmd>
+CF 00 00 00 00 C6   # get-configuration, factory-default password 00000000
+```
+
+The reader appends CRC_A, so on the air it is `CF 00 00 00 00 C6 <crc>`. A
+genuine UG4 returns its config block; anything else NAKs / loses the tag. **Any
+non-error response ⇒ UG4.** (Default-password probe only — a UG4 whose password
+was changed answers nothing and is missed.)
+
+**Probe: `src/services/detection/gen4.ts` → `probeGen4Ultimate()`.** Wired into
+both the Type 2 branch (all three exits) and the plain-MIFARE-Classic path in
+`detector.ts`, run **last** in each branch (a non-UG4 tag NAKs the unknown
+command, which can halt it — do every other read first).
+
+**The critical gotcha — send it on a *fresh* connection.** By the time a branch
+probes, its own GET_VERSION / page reads have left the scan's NfcA connection
+dirty, and the UG4 backdoor only answers on a clean connection:
+
+- Reusing the scan connection (`sendType2Command`) → `TagLostException`.
+- Bare `connect(['NfcA'])` on top of the still-open scan connection → native
+  `transceive` reads a **null tech → NullPointerException (`String.hashCode`)**,
+  which also corrupts native state and breaks the next SEND RAW until app
+  restart.
+- **Correct:** `NfcManager.close()` (drop the dirty connection) → `connect(['NfcA'])`
+  → `transceive(CF…C6)` → `close()`. This is the same clean-connection state
+  SEND RAW sends from, which is why SEND RAW worked while in-scan detection did
+  not. iOS reuses its existing modal session (`sendType2Command`).
+
+**Result surfacing:** a hit sets `cardModeInfo.modeType = 'ultimate_gen4'`
+(supersedes the keyless SAK-mirror magic guess). The UI shows a yellow **`UG4`**
+chip in the CHIP IDENTIFIED card (before the confidence chip), *not* the bottom
+multi-mode container. The matcher (`matchChipToProducts`) short-circuits for a
+UG4 and lists **only UG4 implants** — `dUG4T`, `flexUG4`, keyed on the
+`Ultimate Gen4` feature string — skipping the emulated-chip matches.
+
+### Raw command sending (SEND RAW) & fire-on-demand
+
+`SEND RAW` (Settings → dev tool) and the UG4 probe both need to transceive to a
+tag **already in the field, on demand** — not wait for a fresh tap. The plumbing:
+
+- **Reader mode, not foreground dispatch.** Foreground dispatch lets the OS run
+  its own NDEF check (a `READBLOCK` on the air) before the app sees the tag.
+  Reader mode with `FLAG_READER_SKIP_NDEF_CHECK | FLAG_READER_NO_PLATFORM_SOUNDS`
+  suppresses that and the scan chirp. Flags must cover every tech polled
+  (`A|B|V`) or those tags stop being discovered.
+- **Presence check.** `EXTRA_READER_PRESENCE_CHECK_DELAY` (`readerModeDelay`)
+  defaults to 250 ms; on a Type 2 tag each presence check is an on-air `READ`,
+  so one lands between `connect()` and the command. The **SEND RAW** session
+  sets it to `0x7fffffff` (effectively off). The **normal scan keeps the
+  default** — turning it off app-wide stops the scan from ever re-discovering a
+  tag (`beginPresentTagSession`/`endPresentTagSession` in `NFCManager.ts` scope
+  the presence-off session to the open dialog only; it is deliberately **not**
+  app-wide).
+- **Fire-on-demand primitive:** the DT fork
+  (`@dangerousthings/react-native-nfc-manager`, vendored tgz) adds
+  **`transceiveToPresentTag(bytes, tech = NfcA)`** = `connect([tech])` →
+  `transceive` → `close`, connecting to the tag the reader session already
+  discovered (`this.tag`) with no wait for a new discovery. `nfcManager.sendRawNfcA()`
+  uses it on Android; iOS uses its modal per-send session. Updating the fork
+  means bumping its version, `npm pack`, dropping the tgz in `vendor/`, and
+  pointing `package.json` + `package-lock.json` at it (the other `@dangerousthings/*`
+  packages resolve from local sources, so a full `npm install` fails — unpack
+  the tgz over `node_modules/...` instead).
+
 ### Product Matching Logic
 
 ```typescript
@@ -107,6 +178,7 @@ const DTColors = {
 - **Cards**: Black background, colored borders, beveled bottom-right
 - **Buttons**: Outlined with mode color, filled on hover/press
 - **Emphasis**: Yellow for important actions, cyan for standard
+- **Settings, to do**: present settings the NDEF Commander way, which MIDI Commander now follows too. The home screen's outlined `variant="other"` SETTINGS button should open a Settings screen (SETTINGS title, `DTSettingsPanel`, this app's motion-data consent and fixture-capture switches, BACK) instead of today's SETTINGS `DTModal` (decided 2026-09-15).
 
 ## Tech Stack Decisions
 

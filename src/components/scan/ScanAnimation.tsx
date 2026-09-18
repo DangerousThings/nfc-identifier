@@ -1,35 +1,46 @@
 /**
  * Animated NFC Scan Indicator
  *
- * Shows pulsing concentric rings during NFC scanning
+ * Shows pulsing concentric rings during NFC scanning. Honours the design
+ * system's animation speed: durations scale with it, and at 0 the rings sit
+ * in their resting state without animating.
  */
 
 import React, {useEffect, useRef} from 'react';
 import {View, StyleSheet, Animated, Easing} from 'react-native';
-import {DTColors} from '@dangerousthings/react-native';
+import {useDTMotionScale} from '@dangerousthings/react-native';
+import {useColors} from '../../hooks/useColors';
 
 interface ScanAnimationProps {
   /** Whether the animation is active */
   isActive: boolean;
-  /** Color for the rings (defaults to modeNormal/cyan) */
+  /** Color for the rings (defaults to the theme's modeNormal) */
   color?: string;
   /** Size of the component */
   size?: number;
 }
 
+/** Pulse length and ring stagger at motion scale 1. */
+const PULSE_DURATION = 2000;
+const RING_STAGGER = [0, 666, 1333];
+
 export function ScanAnimation({
   isActive,
-  color = DTColors.modeNormal,
+  color: colorProp,
   size = 200,
 }: ScanAnimationProps) {
+  const colors = useColors();
+  const motionScale = useDTMotionScale();
+  const color = colorProp ?? colors.modeNormal;
+
   // Animation values for each ring
   const ring1 = useRef(new Animated.Value(0)).current;
   const ring2 = useRef(new Animated.Value(0)).current;
   const ring3 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!isActive) {
-      // Reset animations when not active
+    if (!isActive || motionScale === 0) {
+      // Reset to the resting state when not active or animation is off
       ring1.setValue(0);
       ring2.setValue(0);
       ring3.setValue(0);
@@ -40,10 +51,10 @@ export function ScanAnimation({
     const createPulse = (animatedValue: Animated.Value, delay: number) => {
       return Animated.loop(
         Animated.sequence([
-          Animated.delay(delay),
+          Animated.delay(delay * motionScale),
           Animated.timing(animatedValue, {
             toValue: 1,
-            duration: 2000,
+            duration: PULSE_DURATION * motionScale,
             easing: Easing.out(Easing.ease),
             useNativeDriver: true,
           }),
@@ -56,9 +67,9 @@ export function ScanAnimation({
       );
     };
 
-    const animation1 = createPulse(ring1, 0);
-    const animation2 = createPulse(ring2, 666);
-    const animation3 = createPulse(ring3, 1333);
+    const animation1 = createPulse(ring1, RING_STAGGER[0]);
+    const animation2 = createPulse(ring2, RING_STAGGER[1]);
+    const animation3 = createPulse(ring3, RING_STAGGER[2]);
 
     animation1.start();
     animation2.start();
@@ -69,7 +80,7 @@ export function ScanAnimation({
       animation2.stop();
       animation3.stop();
     };
-  }, [isActive, ring1, ring2, ring3]);
+  }, [isActive, motionScale, ring1, ring2, ring3]);
 
   const createRingStyle = (animatedValue: Animated.Value) => {
     const scale = animatedValue.interpolate({

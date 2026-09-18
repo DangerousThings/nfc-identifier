@@ -16,20 +16,22 @@
  *   so testers can tell the difference at a glance.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import * as Updates from 'expo-updates';
-import { DTColors } from '@dangerousthings/react-native';
+import { useColors, type AppColors } from '../hooks/useColors';
 
 /**
  * Binary version. Mirror this with `version` in app.config.ts on each
  * native build. JS-only OTA pushes do not bump this string — that's
  * intentional, since the binary on the device is what `version` describes.
  */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 export function VersionInfo() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const channel = Updates.channel ?? 'unknown';
   const updateId = Updates.updateId;
   const updateLabel = updateId ? updateId.slice(0, 8) : 'embedded';
@@ -43,12 +45,12 @@ export function VersionInfo() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: AppColors) => StyleSheet.create({
   row: {
     alignItems: 'center',
   },
   text: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     opacity: 0.5,
     fontSize: 11,
   },

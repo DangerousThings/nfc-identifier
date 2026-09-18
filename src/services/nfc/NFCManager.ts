@@ -4,7 +4,16 @@
  */
 
 import {Platform} from 'react-native';
-import NfcManager, {NfcTech, TagEvent} from 'react-native-nfc-manager';
+import NfcManager, {
+  NfcAdapter,
+  NfcTech,
+  TagEvent,
+} from '@dangerousthings/react-native-nfc-manager';
+import {
+  requestTechnology,
+  cancelTechnologyRequest,
+  sendType2Command,
+} from './commands';
 import type {
   RawTagData,
   NFCStatus,
@@ -14,6 +23,32 @@ import type {
   NdefRecord,
   MifareClassicInfo,
 } from '../../types/nfc';
+
+/**
+ * Reader mode covers every technology the app polls for: with reader mode on,
+ * a technology whose flag is missing is simply never discovered.
+ * SKIP_NDEF_CHECK keeps the platform from reading the tag before we do,
+ * NO_PLATFORM_SOUNDS silences the system chirp.
+ */
+const READER_MODE_FLAGS =
+  NfcAdapter.FLAG_READER_NFC_A |
+  NfcAdapter.FLAG_READER_NFC_B |
+  NfcAdapter.FLAG_READER_NFC_V |
+  NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK |
+  NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS;
+
+/**
+ * Reader-mode presence-check delay (EXTRA_READER_PRESENCE_CHECK_DELAY), ms.
+ *
+ * While a tag is connected, Android's reader mode pings it every this-many ms
+ * to notice removal. On a Type 2 / NfcA tag that ping is an on-air READ, so at
+ * the default 250 ms one lands between connect() and our own command and shows
+ * up in a sniff as a stray READBLOCK. SKIP_NDEF_CHECK does not suppress it —
+ * it is the presence check, not an NDEF check. Integer.MAX_VALUE (~24 days) is
+ * the documented way to effectively disable it; we never rely on reader-mode
+ * removal detection, we release the session explicitly.
+ */
+const PRESENCE_CHECK_OFF = 0x7fffffff;
 
 /**
  * Convert byte array to hex string
@@ -49,7 +84,7 @@ function bytesToHex(bytes: number[] | Uint8Array | string | undefined): string {
  * Parse SAK from tag event
  */
 function parseSak(tag: TagEvent): number | undefined {
-  // Android: exposed top-level by our react-native-nfc-manager patch
+  // Android: exposed top-level by the DT fork's tagToJSON enrichment
   // (NfcA.getSak()); stock builds omit it. Older/nested shape kept as a
   // fallback for safety.
   const topSak = (tag as any).sak;
@@ -361,6 +396,103 @@ class NFCManagerService {
   }
 
   /**
+   * Begin a reader-mode session scoped to a "send raw to the present tag" flow
+   * (the SEND RAW dialog). Presence check off — so no keep-alive READ lands
+   * between connect() and our command — and no platform sound / NDEF read. The
+   * tag gets discovered once on placement, which is what sendRawNfcA() then
+   * connects to. Android only; iOS uses its modal per-send session instead.
+   *
+   * Pair with endPresentTagSession(). This is deliberately NOT app-wide: a
+   * held presence-off session would stop the normal scan from ever
+   * re-discovering a tag.
+   */
+  async beginPresentTagSession(): Promise<void> {
+    if (Platform.OS === 'ios' || !(await this.init())) {
+      return;
+    }
+
+    try {
+      await NfcManager.registerTagEvent({
+        isReaderModeEnabled: true,
+        readerModeFlags: READER_MODE_FLAGS,
+        readerModeDelay: PRESENCE_CHECK_OFF,
+      });
+    } catch (error) {
+      console.debug('[NFCManager] Could not begin present-tag session:', error);
+    }
+  }
+
+  /** End the reader-mode session begun by beginPresentTagSession(). */
+  async endPresentTagSession(): Promise<void> {
+    if (Platform.OS === 'ios') {
+      return;
+    }
+    try {
+      await NfcManager.cancelTechnologyRequest();
+      await NfcManager.unregisterTagEvent();
+    } catch (error) {
+      console.debug('[NFCManager] Could not end present-tag session:', error);
+    }
+  }
+
+  /**
+   * Send one raw ISO 14443-3A (NfcA) command to the tag currently in the field
+   * and return its response bytes. Fires on demand — it does NOT wait for a
+   * fresh tap.
+   *
+   * Android: connects to the tag the raw-send reader session already
+   * discovered (see beginPresentTagSession), transceives, then releases the
+   * tech so the session stays up for the next call. Rejects if no tag is in
+   * the field.
+   *
+   * iOS: opens the modal per-scan session — the system sheet is what puts the
+   * phone against the tag — transceives, then closes it.
+   */
+  async sendRawNfcA(command: number[]): Promise<number[]> {
+    if (Platform.OS === 'ios') {
+      try {
+        await requestTechnology(NfcTech.MifareIOS, {
+          alertMessage: 'Hold your tag near the top of your iPhone',
+        });
+        return await sendType2Command(command);
+      } finally {
+        await cancelTechnologyRequest();
+      }
+    }
+
+    return NfcManager.transceiveToPresentTag(command, NfcTech.NfcA);
+  }
+
+  /**
+   * Send one raw ISO 15693 (NfcV) frame to the tag currently in the field and
+   * return its response bytes (response-flags byte included, exactly as the tag
+   * answers). Fires on demand — it does NOT wait for a fresh tap. The GENERIC
+   * NfcV analogue of {@link sendRawNfcA}: it carries no protocol knowledge, it
+   * just moves bytes, so a caller can drive vendor-proprietary frames (e.g. the
+   * app's NTAG5 NXP custom commands) over it.
+   *
+   * Android: `transceiveToPresentTag` connects to the tag the active reader
+   * session already discovered, transceives, then releases the tech — and its
+   * connect → close → connect handshake gives the frame a clean activation
+   * (the same fresh-connection state SEND RAW / the UG4 backdoor rely on), so
+   * a preceding library read on the scan connection does not dirty it.
+   *
+   * iOS: CoreNFC exposes no raw ISO 15693 transceive — only the structured
+   * `iso15693HandlerIOS.customCommand({flags, code, params})`. So there is no
+   * raw-frame primitive to mirror here; callers that need an NXP custom command
+   * on iOS go through that structured API directly (see `nxpCommands.ts`).
+   */
+  async sendRawNfcV(command: number[]): Promise<number[]> {
+    if (Platform.OS === 'ios') {
+      throw new Error(
+        'sendRawNfcV: raw ISO 15693 frames are unsupported on iOS; use iso15693HandlerIOS.customCommand',
+      );
+    }
+
+    return NfcManager.transceiveToPresentTag(command, NfcTech.NfcV);
+  }
+
+  /**
    * Check NFC status (supported and enabled)
    */
   async getStatus(): Promise<NFCStatus> {
@@ -424,13 +556,30 @@ class NFCManagerService {
         // IMPORTANT: IsoDep MUST be first so ISO-DEP capable tags (DESFire, NTAG 424 DNA)
         // connect via ISO-DEP rather than NfcA. When NfcA connects first, isoDepHandler
         // won't work because the wrong technology is active.
-        await NfcManager.requestTechnology([
-          NfcTech.IsoDep,
-          NfcTech.NfcA,
-          NfcTech.NfcV,
-          NfcTech.NfcB,
-          NfcTech.MifareClassic,
-        ]);
+        await NfcManager.requestTechnology(
+          [
+            NfcTech.IsoDep,
+            NfcTech.NfcA,
+            NfcTech.NfcV,
+            NfcTech.NfcB,
+            NfcTech.MifareClassic,
+          ],
+          {
+            // Reader mode instead of foreground dispatch: no platform scan
+            // sound, no NDEF read behind our back before we get the tag.
+            isReaderModeEnabled: true,
+            readerModeFlags: READER_MODE_FLAGS,
+            // Presence check OFF for the whole scan, same as the SEND RAW
+            // session. identify()'s magic sweep reconnects (close->connect) and
+            // must send the UG4 backdoor `CF..C6` as the FIRST frame after
+            // SELECT; at the default 250 ms a presence-check READ lands between
+            // connect() and CF on a Type 2 tag, so CF is second and the UG4 is
+            // missed. This is a one-shot scan (discover -> identify -> release),
+            // so we never need reader-mode removal detection — unlike the
+            // app-wide warning on beginPresentTagSession().
+            readerModeDelay: PRESENCE_CHECK_OFF,
+          },
+        );
       }
 
       // Get the tag
@@ -465,26 +614,33 @@ class NFCManagerService {
   async scanWithDetection<T>(
     detectFn: (tag: RawTagData) => Promise<T>,
   ): Promise<{tag?: RawTagData; detection?: T; error?: ScanError}> {
-    try {
-      // Scan but keep the session alive
-      const {tag, error} = await this.scanTag(true);
+    // Scan but keep the session alive
+    const {tag, error} = await this.scanTag(true);
 
-      if (error || !tag) {
-        return {error};
-      }
-
-      // Run detection while session is still active
-      try {
-        const detection = await detectFn(tag);
-        return {tag, detection};
-      } catch (detectError) {
-        // Detection failed but we still have the tag data
-        console.warn('[NFCManager] Detection failed:', detectError);
-        return {tag};
-      }
-    } finally {
-      // Always clean up after detection
+    if (error || !tag) {
       await this.cancelScan();
+      return {error};
+    }
+
+    // Run detection while session is still active
+    try {
+      const detection = await detectFn(tag);
+      // SUCCESS: do NOT release here. Releasing the moment detection resolves —
+      // while the card is still on the antenna and the user hasn't yet seen the
+      // result — lets the OS re-inventory the tag and dispatch it to whoever
+      // declares an NFC intent filter (NDEF Commander's .RuleTagDispatch), which
+      // launches it. The scan screen holds the session for its focused lifetime
+      // and releases it on unmount (useScan cleanup), by which point the user is
+      // lifting the card and moving to the result screen. See FORK.md
+      // "Dispatch ownership".
+      return {tag, detection};
+    } catch (detectError) {
+      // Got the tag but detection failed (e.g. tag lost mid-identify). The card
+      // is usually already gone, and the screen stays up for a retry, so release
+      // now so the next startScan can re-arm.
+      console.warn('[NFCManager] Detection failed:', detectError);
+      await this.cancelScan();
+      return {tag};
     }
   }
 
@@ -494,6 +650,14 @@ class NFCManagerService {
   async cancelScan(): Promise<void> {
     try {
       await NfcManager.cancelTechnologyRequest();
+      // Release BOTH halves. cancelTechnologyRequest alone can leave the fork's
+      // native dispatch flag / a still-registered reader session in place, so a
+      // tag still in the field re-arms and gets dispatched to NDEF Commander's
+      // .RuleTagDispatch after we're done. unregisterTagEvent tears the session
+      // down immediately. See FORK.md "Dispatch ownership". (Idempotent.)
+      if (Platform.OS === 'android') {
+        await NfcManager.unregisterTagEvent();
+      }
     } catch {
       // Ignore errors during cleanup
     }

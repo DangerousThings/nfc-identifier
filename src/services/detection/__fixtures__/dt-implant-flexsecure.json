@@ -35,6 +35,7 @@
     "icTypeName": "J3R180",
     "dtProductName": "flexSecure",
     "dtProductKind": "implant",
-    "implantName": "flexSecure"
+    "implantName": "flexSecure",
+    "productKind": "implant"
   }
 }

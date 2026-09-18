@@ -12,7 +12,7 @@ jest.mock('react-native', () => ({
   Platform: {OS: 'android', select: (obj: any) => obj.android ?? obj.default},
 }));
 
-jest.mock('react-native-nfc-manager', () => ({
+jest.mock('@dangerousthings/react-native-nfc-manager', () => ({
   __esModule: true,
   default: {},
   NfcTech: {},
@@ -27,9 +27,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-import {getJavacardImplantName} from '../detector';
+import {getJavacardImplantName} from '../javacardIdentity';
 
 const APEX_TOTAL = 84336;
+const APEX2_TOTAL = 311852;
 const J3R180_TOTAL = 167736;
 
 function storage(persistentTotal: number) {
@@ -43,8 +44,9 @@ function storage(persistentTotal: number) {
 
 describe('payment cards', () => {
   test('names the payment network', () => {
-    const {name} = getJavacardImplantName(['Payment (PPSE)', 'Visa']);
+    const {name, kind} = getJavacardImplantName(['Payment (PPSE)', 'Visa']);
     expect(name).toBe('Visa Payment Card');
+    expect(kind).toBe('payment-card');
   });
 
   test('falls back to a generic label when the network is unknown', () => {
@@ -53,8 +55,72 @@ describe('payment cards', () => {
   });
 });
 
+describe('Apex rings (Fidesmo + payment applet)', () => {
+  test('D321 silicon with Visa is an Apex Ring', () => {
+    const {name, kind, evidence} = getJavacardImplantName(
+      ['Fidesmo', 'Payment (PPSE)', 'Visa'],
+      true,
+      storage(APEX_TOTAL),
+      'J3R180',
+    );
+
+    expect(name).toBe('Apex Ring');
+    // A ring is worn, not implanted — the UI must never tag it as an implant.
+    expect(kind).toBe('wearable');
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({source: 'applet-set', matched: true}),
+        expect.objectContaining({source: 'cplc-ic-type', matched: true}),
+      ]),
+    );
+  });
+
+  test('D600 silicon with Mastercard is an Apex 2 Ring', () => {
+    const {name, kind} = getJavacardImplantName(
+      ['Fidesmo', 'Payment (PPSE)', 'Mastercard'],
+      true,
+      storage(APEX_TOTAL),
+      'J3R452',
+    );
+    expect(name).toBe('Apex 2 Ring');
+    expect(kind).toBe('wearable');
+  });
+
+  test('Fidesmo reported only via the applet list still counts', () => {
+    const {name} = getJavacardImplantName(
+      ['Fidesmo', 'Payment (PPSE)', 'Visa'],
+      false,
+      undefined,
+      'J3R180',
+    );
+    expect(name).toBe('Apex Ring');
+  });
+
+  test('payment applet without Fidesmo stays a payment card', () => {
+    const {name} = getJavacardImplantName(
+      ['Payment (PPSE)', 'Visa'],
+      false,
+      undefined,
+      'J3R180',
+    );
+    expect(name).toBe('Visa Payment Card');
+  });
+
+  test('Fidesmo + payment on unrecognised silicon stays a payment card', () => {
+    const {name} = getJavacardImplantName(
+      ['Fidesmo', 'Payment (PPSE)', 'Visa'],
+      true,
+      storage(APEX_TOTAL),
+      undefined,
+    );
+    expect(name).toBe('Visa Payment Card');
+  });
+});
+
 describe('Apex', () => {
-  test('Fidesmo + Apex storage size identifies an Apex', () => {
+  test('Fidesmo with no CPLC falls back to the install-profile size', () => {
+    // persistentTotal is set by the Fidesmo install, so it's a fallback only —
+    // but it's all there is when the card's CPLC won't answer.
     const {name, evidence} = getJavacardImplantName(
       ['Fidesmo', 'JavaCard Memory'],
       true,
@@ -62,35 +128,85 @@ describe('Apex', () => {
     );
 
     expect(name).toBe('Apex');
-    // Two independent signals agreed — that's what earns the product name.
     expect(evidence).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({source: 'applet-set', matched: true}),
         expect.objectContaining({source: 'persistent-total', matched: true}),
       ]),
     );
   });
 
-  test('Apex is still named when CPLC also reports J3R180', () => {
-    const {name} = getJavacardImplantName(
+  test('Fidesmo + D321 silicon identifies an Apex', () => {
+    const {name, evidence} = getJavacardImplantName(
       ['Fidesmo'],
       true,
       storage(APEX_TOTAL),
       'J3R180',
     );
     expect(name).toBe('Apex');
+    // Two independent signals agreed — that's what earns the product name.
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({source: 'applet-set', matched: true}),
+        expect.objectContaining({source: 'cplc-ic-type', matched: true}),
+      ]),
+    );
   });
 
-  test('Fidesmo without Apex storage is a generic Fidesmo wearable', () => {
+  test('Fidesmo + D600 silicon identifies an Apex 2', () => {
+    const {name, evidence} = getJavacardImplantName(
+      ['Fidesmo', 'JavaCard Memory'],
+      true,
+      storage(APEX2_TOTAL),
+      'J3R452',
+    );
+
+    expect(name).toBe('Apex 2');
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({source: 'cplc-ic-type', matched: true}),
+      ]),
+    );
+  });
+
+  test('an Apex 2 whose install left a different persistentTotal still names', () => {
+    // Real capture, 2026-08-22: a converted Apex 2 ring on 0xD600 reports
+    // 162028 bytes, not the 311852 another Apex 2 reports. The Fidesmo
+    // install sets the total, so only the IC type is load-bearing here.
     const {name} = getJavacardImplantName(
+      ['Fidesmo', 'JavaCard Memory'],
+      true,
+      storage(162028),
+      'J3R452',
+    );
+    expect(name).toBe('Apex 2');
+  });
+
+  test('storage size alone never claims a form factor', () => {
+    // A ring and a flex of the same generation report the same total, so
+    // "Ring" is only ever asserted by the payment-applet rule above, and the
+    // kind stays honestly unknown rather than defaulting to implant.
+    const {name, kind} = getJavacardImplantName(
+      ['Fidesmo', 'JavaCard Memory'],
+      true,
+      storage(APEX2_TOTAL),
+      'J3R452',
+    );
+    expect(name).not.toBe('Apex 2 Ring');
+    expect(kind).toBe('unknown');
+  });
+
+  test('Fidesmo on unrecognised silicon is a generic Fidesmo wearable', () => {
+    const {name, kind} = getJavacardImplantName(
       ['Fidesmo'],
       true,
       storage(J3R180_TOTAL),
     );
     expect(name).toBe('Fidesmo Wearable');
+    // Named a wearable, so it must be tagged as one — never as an implant.
+    expect(kind).toBe('wearable');
   });
 
-  test('Fidesmo with unreadable storage does not claim Apex', () => {
+  test('Fidesmo with no CPLC does not claim Apex', () => {
     const {name} = getJavacardImplantName(['Fidesmo'], true, undefined);
     expect(name).toBe('Fidesmo Wearable');
   });

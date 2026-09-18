@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import { Button, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DTButton, DTColors } from '@dangerousthings/react-native';
+import { DTButton } from '@dangerousthings/react-native';
+import { useColors, type AppColors } from '../hooks/useColors';
 import type { ScanScreenProps } from '../types/navigation';
 import { useScan } from '../hooks';
 import { useDataConsent } from '../hooks/useDataConsent';
@@ -10,6 +11,8 @@ import { getScanInstructions } from '../services/nfc';
 import { ScanAnimation } from '../components';
 
 export function ScanScreen({ navigation }: ScanScreenProps) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { consentStatus } = useDataConsent();
   const {
@@ -260,7 +263,7 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
             <ScanAnimation
               isActive={true}
               size={180}
-              color={DTColors.modeEmphasis}
+              color={colors.modeEmphasis}
             />
             <Text variant="headlineMedium" style={styles.processingText}>
               IDENTIFYING
@@ -284,10 +287,10 @@ export function ScanScreen({ navigation }: ScanScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: AppColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: DTColors.dark,
+    backgroundColor: c.dark,
     padding: 24,
   },
   content: {
@@ -296,19 +299,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scanningText: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     letterSpacing: 4,
     marginTop: 32,
     marginBottom: 16,
   },
   instructionText: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     textAlign: 'center',
     paddingHorizontal: 20,
   },
   progressText: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     opacity: 0.7,
     marginTop: 16,
     textAlign: 'center',
@@ -319,18 +322,18 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 3,
-    borderColor: DTColors.modeWarning,
+    borderColor: c.modeWarning,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
   },
   errorIconText: {
-    color: DTColors.modeWarning,
+    color: c.modeWarning,
     fontSize: 48,
     fontWeight: 'bold',
   },
   errorText: {
-    color: DTColors.modeWarning,
+    color: c.modeWarning,
     letterSpacing: 2,
     marginBottom: 16,
   },
@@ -339,29 +342,29 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 3,
-    borderColor: DTColors.modeEmphasis,
+    borderColor: c.modeEmphasis,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
   },
   warningIconText: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     fontSize: 36,
   },
   warningText: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 16,
   },
   errorMessage: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.8,
     textAlign: 'center',
     marginBottom: 24,
     paddingHorizontal: 20,
   },
   hintText: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     opacity: 0.7,
     textAlign: 'center',
     marginBottom: 24,
@@ -372,17 +375,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   readyText: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 2,
     marginBottom: 32,
   },
   processingText: {
-    color: DTColors.modeEmphasis,
+    color: c.modeEmphasis,
     letterSpacing: 4,
     marginTop: 32,
   },
   detectingHint: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.7,
     marginTop: 12,
   },
@@ -391,11 +394,11 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   cancelLabel: {
-    color: DTColors.light,
+    color: c.light,
     opacity: 0.6,
   },
   retryLabel: {
-    color: DTColors.modeNormal,
+    color: c.modeNormal,
     marginBottom: 8,
   },
 });
