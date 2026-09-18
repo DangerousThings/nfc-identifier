@@ -68,6 +68,7 @@ import { useDataConsent } from '../hooks/useDataConsent';
 import { useFixtureCapture } from '../hooks/useFixtureCapture';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { sampleCollector } from '../services/motion';
+import { nfcManager } from '../services/nfc';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
 import { emulatedCredentials } from '../services/detection/dtEnrich';
 import * as Clipboard from 'expo-clipboard';
@@ -82,6 +83,17 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
   const { enabled: fixtureCaptureEnabled } = useFixtureCapture();
   const { action: swipeBackAction } = useSwipeBack();
   const insets = useSafeAreaInsets();
+
+  // Release the NFC session held across the scan->result flow. useScan keeps the
+  // reader session armed on a successful scan (so the still-present card is never
+  // released to the OS dispatcher / NDEF Commander); we release it here, on
+  // leaving the Result screen, by which point the user has removed the card. See
+  // FORK.md "Dispatch ownership".
+  useEffect(() => {
+    return () => {
+      nfcManager.cancelScan();
+    };
+  }, []);
 
   // "Swipe back" setting. Only the back *gesture* follows it; the header arrow
   // keeps popping the stack. Which navigation action the gesture produces is

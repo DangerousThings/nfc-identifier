@@ -614,26 +614,33 @@ class NFCManagerService {
   async scanWithDetection<T>(
     detectFn: (tag: RawTagData) => Promise<T>,
   ): Promise<{tag?: RawTagData; detection?: T; error?: ScanError}> {
-    try {
-      // Scan but keep the session alive
-      const {tag, error} = await this.scanTag(true);
+    // Scan but keep the session alive
+    const {tag, error} = await this.scanTag(true);
 
-      if (error || !tag) {
-        return {error};
-      }
-
-      // Run detection while session is still active
-      try {
-        const detection = await detectFn(tag);
-        return {tag, detection};
-      } catch (detectError) {
-        // Detection failed but we still have the tag data
-        console.warn('[NFCManager] Detection failed:', detectError);
-        return {tag};
-      }
-    } finally {
-      // Always clean up after detection
+    if (error || !tag) {
       await this.cancelScan();
+      return {error};
+    }
+
+    // Run detection while session is still active
+    try {
+      const detection = await detectFn(tag);
+      // SUCCESS: do NOT release here. Releasing the moment detection resolves —
+      // while the card is still on the antenna and the user hasn't yet seen the
+      // result — lets the OS re-inventory the tag and dispatch it to whoever
+      // declares an NFC intent filter (NDEF Commander's .RuleTagDispatch), which
+      // launches it. The scan screen holds the session for its focused lifetime
+      // and releases it on unmount (useScan cleanup), by which point the user is
+      // lifting the card and moving to the result screen. See FORK.md
+      // "Dispatch ownership".
+      return {tag, detection};
+    } catch (detectError) {
+      // Got the tag but detection failed (e.g. tag lost mid-identify). The card
+      // is usually already gone, and the screen stays up for a retry, so release
+      // now so the next startScan can re-arm.
+      console.warn('[NFCManager] Detection failed:', detectError);
+      await this.cancelScan();
+      return {tag};
     }
   }
 
@@ -643,6 +650,14 @@ class NFCManagerService {
   async cancelScan(): Promise<void> {
     try {
       await NfcManager.cancelTechnologyRequest();
+      // Release BOTH halves. cancelTechnologyRequest alone can leave the fork's
+      // native dispatch flag / a still-registered reader session in place, so a
+      // tag still in the field re-arms and gets dispatched to NDEF Commander's
+      // .RuleTagDispatch after we're done. unregisterTagEvent tears the session
+      // down immediately. See FORK.md "Dispatch ownership". (Idempotent.)
+      if (Platform.OS === 'android') {
+        await NfcManager.unregisterTagEvent();
+      }
     } catch {
       // Ignore errors during cleanup
     }

@@ -66,8 +66,13 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
     transponder: undefined,
   });
   const [error, setError] = useState<ScanError | null>(null);
+  // Optimistic default: assume NFC is supported until the async status check
+  // (below) says otherwise. Starting false made ScanScreen flash "NFC NOT
+  // SUPPORTED" for the moment between mount and the check resolving (most
+  // visible on swipe-back into a fresh scan). isEnabled stays false — the
+  // "NFC DISABLED" screen also requires an error to be set, so it won't flash.
   const [nfcStatus, setNfcStatus] = useState<NFCStatus>({
-    isSupported: false,
+    isSupported: true,
     isEnabled: false,
   });
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -77,6 +82,15 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
 
   // Track if a scan is in progress
   const scanInProgress = useRef(false);
+
+  // True once a scan has succeeded and we've handed the tag off to the Result
+  // screen. When set, we must NOT release the NFC session on ScanScreen unmount:
+  // the card is still on the antenna and releasing here dispatches it to whoever
+  // declares an NFC intent filter (NDEF Commander's .RuleTagDispatch → a chooser
+  // dialog). We hold the field across the whole scan->result flow; ResultScreen
+  // releases it on unmount, by which point the card is removed. See FORK.md
+  // "Dispatch ownership".
+  const handedOffToResult = useRef(false);
 
   // Initialize NFC and check status
   useEffect(() => {
@@ -95,8 +109,13 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
     return () => {
       mounted = false;
       isMounted.current = false;
-      // Cleanup on unmount
-      nfcManager.cancelScan();
+      // Cleanup on unmount — but only if we did NOT hand a successful scan off to
+      // the Result screen. On success the session is held across the scan->result
+      // flow and ResultScreen releases it; releasing here would leak the still-
+      // present tag to the OS dispatcher (see handedOffToResult).
+      if (!handedOffToResult.current) {
+        nfcManager.cancelScan();
+      }
     };
   }, []);
 
@@ -108,16 +127,25 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
     }
 
     scanInProgress.current = true;
+    handedOffToResult.current = false;
+
+    // Show the scanning UI immediately. This MUST happen before the awaited
+    // cancelScan() below: cancelScan can block ~1s (the fork's unregister delay),
+    // and while state is still 'idle' with the initial nfcStatus (isSupported:
+    // false) the screen would flash "NFC NOT SUPPORTED".
+    setState('scanning');
+    setScanResult({ tag: null, transponder: undefined });
+    setError(null);
+    setScanProgress({step: 'Waiting for tag...', current: 1});
 
     // Capture motion data at moment user initiates scan
     if (canCapture) {
       sampleCollector.captureSample('scan_initiated');
     }
 
-    setState('scanning');
-    setScanResult({ tag: null, transponder: undefined });
-    setError(null);
-    setScanProgress({step: 'Waiting for tag...', current: 1});
+    // Release any session still held from a previous scan->result flow (e.g. the
+    // user came back here from Result) before arming a fresh one.
+    await nfcManager.cancelScan();
 
     try {
       // Check NFC status first
@@ -263,6 +291,9 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
           transponder: detectedTransponder,
         });
         setState('success');
+        // Handing off to the Result screen: keep the NFC session held so the
+        // still-present tag is never released to the OS dispatcher.
+        handedOffToResult.current = true;
 
         if (canCapture) {
           sampleCollector.captureSample('scan_success');
