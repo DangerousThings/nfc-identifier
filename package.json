@@ -18,7 +18,8 @@
   "dependencies": {
     "@babel/core": "^7.29.0",
     "@dangerousthings/react-native": "^0.7.0",
-    "@dangerousthings/react-native-nfc-manager": "git+https://git.dngr.us/MikeFaith/react-native-nfc-manager-dt.git#v3.17.2-dt.5",
+    "@dangerousthings/react-native-nfc-manager": "git+https://git.dngr.us/MikeFaith/react-native-nfc-manager-dt.git#v3.17.2-dt.6",
+    "@dangerousthings/transponders": "git+https://git.dngr.us/MikeFaith/transponders.git#v0.1.0",
     "@dangerousthings/tokens": "^0.4.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/native": "^7.1.27",
