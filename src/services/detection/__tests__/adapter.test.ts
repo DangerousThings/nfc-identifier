@@ -8,7 +8,13 @@
  */
 
 import {ChipType, ChipFamily} from '../../../types/detection';
-import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager';
+import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/base';
+import type {Transport} from '@dangerousthings/react-native-nfc-manager/src/transponders/transport';
+import type {TagInfo} from '@dangerousthings/react-native-nfc-manager/src/transponders/types';
+import {decodeGetVersion} from '@dangerousthings/react-native-nfc-manager/src/transponders/probes/getversion';
+import {DesfireTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/desfire';
+import {JavaCardTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/javacard';
+import {KNOWN_AIDS} from '../../nfc/commands';
 import {identifyTransponder, libToAppTransponder} from '../adapter';
 
 // react-native's Platform, used for the detectedOn default.
@@ -41,7 +47,39 @@ function fakeLib(partial: Partial<LibTransponder>): LibTransponder {
     info: {uid: []},
     readUserMemory: async () => [],
     ...partial,
-  } as LibTransponder;
+  } as unknown as LibTransponder;
+}
+
+/**
+ * A scripted ISO-DEP transport: `transceive` matches the command against a list
+ * of rules (first match wins) and returns the raw bytes for it, defaulting to a
+ * 0x6A82 "file not found" so an unmatched SELECT reads as "applet absent".
+ */
+function scriptTransport(
+  info: TagInfo,
+  rules: Array<{when: (cmd: number[]) => boolean; resp: number[]}>,
+): Transport {
+  return {
+    kind: 'isodep',
+    uid: info.uid,
+    sak: info.sak,
+    atqa: info.atqa,
+    ats: info.ats,
+    historicalBytes: info.historicalBytes,
+    transceive: async (cmd: number[]) => {
+      const hit = rules.find(r => r.when(cmd));
+      return hit ? hit.resp : [0x6a, 0x82];
+    },
+  } as unknown as Transport;
+}
+
+/** True when `cmd` is a SELECT-by-AID (00 A4 04 00 …) for exactly `aid`. */
+function isSelect(cmd: number[], aid: readonly number[]): boolean {
+  if (cmd[0] !== 0x00 || cmd[1] !== 0xa4 || cmd[2] !== 0x04) {
+    return false;
+  }
+  const sent = cmd.slice(5, 5 + cmd[4]);
+  return sent.length === aid.length && sent.every((v, i) => v === aid[i]);
 }
 
 describe('libToAppTransponder', () => {
@@ -278,5 +316,113 @@ describe('enrich (DT layer)', () => {
     expect(t.capabilities).toEqual(
       expect.arrayContaining(['iso7816-substrate']),
     );
+  });
+});
+
+/**
+ * Encode a 7-byte GET_VERSION structure for the DESFire branch: NXP vendor,
+ * byte1 = (impl<<4 | family), then subtype/hwMajor/hwMinor/storage/protocol.
+ */
+function getVersion7(byte1: number, hwMajor: number): number[] {
+  return [0x04, byte1, 0x01, hwMajor, 0x00, 0x1a, 0x05];
+}
+
+/** DESFire GET_VERSION reply (7 data bytes + SW 0x91 0x00 "done"). */
+function desfireVersionReply(byte1: number, hwMajor: number): number[] {
+  return [...getVersion7(byte1, hwMajor), 0x91, 0x00];
+}
+
+describe('enrich — re-homed ISO-DEP DT probes (task 5b)', () => {
+  beforeEach(() => mockIdentify.mockReset());
+
+  it('#1/#2: surfaces implementation + version from a live DESFire', async () => {
+    const info: TagInfo = {uid: [0x04, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6], sak: 0x20};
+    // byte1 0x01 = native (0x0) + DESFire family (0x1); hwMajor 0x12 → EV2.
+    const t = scriptTransport(info, [
+      {when: c => c[0] === 0x90 && c[1] === 0x60, resp: desfireVersionReply(0x01, 0x12)},
+      {when: c => c[0] === 0x90 && c[1] === 0x6a, resp: [0x91, 0x00]},
+    ]);
+    const lib = new DesfireTransponder(info, t, decodeGetVersion(getVersion7(0x01, 0x12)));
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.type).toBe(ChipType.DESFIRE_EV2);
+    expect(app.implementation).toBe('native');
+    expect(app.implementationByte).toBe(0x01);
+    expect(app.versionInfo).toMatchObject({hardwareMajor: 0x12, hardwareStorageSize: 0x1a});
+    // A DESFire credential is derived (no ISD → native substrate).
+    expect(app.credentials?.some(c => c.kind === 'desfire')).toBe(true);
+    expect(app.credentials?.some(c => c.kind === 'javacard')).toBe(false);
+  });
+
+  it('#5: enumerates DESFire application labels via enumerateApps()', async () => {
+    const info: TagInfo = {uid: [0x04, 0x9], sak: 0x20};
+    // GET_APPLICATION_IDS answers one AID, LSB-first (20 81 F4 → MSB F48120).
+    const t = scriptTransport(info, [
+      {when: c => c[0] === 0x90 && c[1] === 0x60, resp: desfireVersionReply(0x01, 0x12)},
+      {when: c => c[0] === 0x90 && c[1] === 0x6a, resp: [0x20, 0x81, 0xf4, 0x91, 0x00]},
+    ]);
+    const lib = new DesfireTransponder(info, t, decodeGetVersion(getVersion7(0x01, 0x12)));
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.installedApplets).toContain('App 0xF48120');
+  });
+
+  it('#4: promotes a Classic-SAK DESFire EV3 to EV3C with both credentials', async () => {
+    // SAK 0x28 advertises MIFARE Classic 1K; hwMajor 0x30 → DESFire EV3.
+    const info: TagInfo = {uid: [0x04, 0xa], sak: 0x28};
+    const t = scriptTransport(info, [
+      {when: c => c[0] === 0x90 && c[1] === 0x60, resp: desfireVersionReply(0x01, 0x30)},
+      {when: c => c[0] === 0x90 && c[1] === 0x6a, resp: [0x91, 0x00]},
+    ]);
+    const lib = new DesfireTransponder(info, t, decodeGetVersion(getVersion7(0x01, 0x30)));
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.type).toBe(ChipType.DESFIRE_EV3C);
+    expect(app.credentials?.some(c => c.kind === 'desfire')).toBe(true);
+    expect(app.credentials?.some(c => c.kind === 'mifare-classic')).toBe(true);
+  });
+
+  it('#3: names a payment card via a live PPSE probe on a JavaCard', async () => {
+    const info: TagInfo = {uid: [0x04, 0xb, 0xc, 0xd, 0xe, 0xf, 0x1], sak: 0x20};
+    const t = scriptTransport(info, [
+      {when: c => isSelect(c, KNOWN_AIDS.ppse), resp: [0x90, 0x00]},
+      {when: c => isSelect(c, KNOWN_AIDS.visaCredit), resp: [0x90, 0x00]},
+    ]);
+    // Constructed directly (bypassing the network-driven identify) with a
+    // JavaCard probe that found an ISD but no Fidesmo / CPLC.
+    const lib = new JavaCardTransponder(info, t, {isd: true, aids: [], cplc: undefined});
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.installedApplets).toEqual(
+      expect.arrayContaining(['Payment (PPSE)', 'Visa']),
+    );
+    expect(app.implantName).toBe('Visa Payment Card');
+    expect(app.productKind).toBe('payment-card');
+  });
+
+  it('#3: reads JavaCard Memory persistentTotal into storageInfo', async () => {
+    const info: TagInfo = {uid: [0x04, 0x2, 0x3], sak: 0x20};
+    // persistent_total 0x00028F38 = 167736 (J3R180); 4B free, 4B total, 2B, 2B.
+    const memoryResp = [
+      0x00, 0x02, 0x8f, 0x00, // persistentFree
+      0x00, 0x02, 0x8f, 0x38, // persistentTotal = 167736
+      0x00, 0x10, // transientResetFree
+      0x00, 0x20, // transientDeselectFree
+      0x90, 0x00,
+    ];
+    const t = scriptTransport(info, [
+      {when: c => isSelect(c, KNOWN_AIDS.javacardMemory), resp: memoryResp},
+    ]);
+    const lib = new JavaCardTransponder(info, t, {isd: false, aids: [KNOWN_AIDS.javacardMemory], cplc: undefined});
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.storageInfo?.persistentTotal).toBe(167736);
+    // JavaCard Memory + J3R180 storage size, no CPLC → "J3R180" fallback name.
+    expect(app.implantName).toBe('J3R180');
   });
 });

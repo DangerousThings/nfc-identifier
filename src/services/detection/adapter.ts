@@ -16,52 +16,49 @@
  *     (with its bound transport) is still in hand. Fills the optional DT
  *     fields the base map leaves empty:
  *       - PURE: `dtProduct` / `implantName` / `productKind` from the ATS
- *         historical-byte signature; JavaCard `cplc` / `identityEvidence` /
- *         `credentials` / product name from the library's already-probed
- *         `.cplc` + `.aids`; `capabilities` from all of the above.
- *       - LIVE: the NTAG implant-name-in-memory read, re-homed onto the
- *         library transponder's `readUserMemory()`.
+ *         historical-byte signature; `capabilities` from all of the above.
+ *       - LIVE (Type 2): the NTAG implant-name-in-memory read, re-homed onto
+ *         the library transponder's `readUserMemory()`.
+ *       - LIVE (ISO-DEP): version + implementation substrate, JavaCard payment
+ *         (PPSE) + storage, the DESFire / MIFARE Plus credential sweep, DESFire
+ *         app enumeration, and the Spark 2 / NDEF implant name — all re-homed
+ *         onto the library's `sendApdu` / `isoGetVersion` / `enumerateApps` in
+ *         {@link enrichIsoDep} (see `dtEnrich.ts`).
  *
- * Library command-surface GAPS flagged inline with `TODO(phase-5)`:
- *   - No substrate/`implementation` signal (native vs JavaCard-emulated), so
- *     the substrate capability tags can't be derived.
- *   - No `versionInfo` (GET_VERSION decode) on the public transponder.
- *   - JavaCardTransponder exposes present applet AIDs but the ISD probe does
- *     NOT cover PPSE/payment, nor read the JavaCard Memory applet's
- *     `persistentTotal`, so payment-card / Apex-Ring naming and the
- *     storage-only "J3R180" fallback can't be reproduced here.
- *   - The DESFire/Plus credential sweep, DESFire app enumeration, Spark 2 /
- *     NDEF implant reads, and the ISO 15693 Spark / NTAG5 sensor implant reads
- *     are not re-homed (the live `runCredentialSweep` dies with detector.ts;
- *     the others need their reads re-pointed at `sendApdu` /
- *     `readMultipleBlock`).
+ * OUT OF SCOPE (task 5c): the ISO 15693 Spark / NTAG 5 sensor & temperature
+ * reads are not re-homed here.
+ *
+ * Remaining library command-surface GAPS are flagged inline in `dtEnrich.ts`
+ * with `FORK GAP:` — chiefly that `DesfireTransponder` drops the GET_VERSION
+ * implementation nibble (forcing a re-issue of GET_VERSION), and that the
+ * library's ISO-DEP waterfall never runs its JavaCard ISD/applet probe for a
+ * card it already typed as DESFire (so a JavaCard emulating DESFire has to be
+ * re-probed here over `sendApdu`).
  */
 
 import {Platform} from 'react-native';
 import NfcManager, {
   type IdentifyOptions,
-  type JavaCardTransponder as LibJavaCardTransponder,
-  type Transponder as LibTransponder,
 } from '@dangerousthings/react-native-nfc-manager';
+// The library `Transponder` type is taken from the leaf `base` module (not the
+// package root) so its `ChipType` matches the concrete leaf classes that the
+// enrichment `instanceof`-narrows to; the package-root declaration re-declares
+// `ChipType` as a separate enum. The `IsoDepTransponder` base class is likewise
+// a leaf import so its runtime value is available under Jest without pulling in
+// the native module. See `dtEnrich.ts` for the same pattern.
+import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/base';
+import {IsoDepTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/isodep';
 
 import {
   CHIP_CLONEABILITY,
   CHIP_MEMORY_SIZES,
   CHIP_NAMES,
   ChipFamily,
-  ChipType,
-  type CplcInfo,
-  type DetectedCredential,
   type Transponder,
 } from '../../types/detection';
-import {KNOWN_AIDS} from '../nfc/commands';
 import {deriveCapabilities} from './capabilities';
-import {credentialsForJavaCard} from './credentials';
-import {identifyFabricator, identifyIcType, identifyJcopVersion} from './cplc';
 import {matchDtHistoricalSignature} from './dtproducts';
-import {getJavacardImplantName} from './javacardIdentity';
-import {detectMifareClassic, isMifareClassicSak} from './mifare';
-import {matchImplantNameInBytes} from './ntag';
+import {enrichIsoDep, matchImplantNameInBytes} from './dtEnrich';
 
 /**
  * Format a byte array as colon-separated, upper-case hex — the string form the
@@ -161,78 +158,6 @@ export function libToAppTransponder(
 }
 
 /**
- * The MIFARE Classic chip type a SAK advertises, or `undefined` if it
- * advertises none. Pure. Used to record a Classic credential on a JavaCard
- * whose SAK also advertises Classic (the SAK 0x28 emulation case).
- */
-function classicChipTypeFromSak(sak: number | undefined): ChipType | undefined {
-  if (sak === undefined || !isMifareClassicSak(sak)) {
-    return undefined;
-  }
-  return detectMifareClassic(sak).chipType;
-}
-
-/** True when two AID byte arrays are byte-for-byte equal. */
-function aidEquals(a: number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-/**
- * The applet AIDs (from app `KNOWN_AIDS`) whose presence we surface as a label,
- * in the order the old live `probeApplets` reported them. The library's
- * JavaCard probe answers with the raw AIDs that selected 0x9000; we map them
- * back to labels here (pure — no I/O).
- */
-const JAVACARD_APPLET_LABELS: Array<{aid: readonly number[]; label: string}> = [
-  {aid: KNOWN_AIDS.javacardMemory, label: 'JavaCard Memory'},
-  {aid: KNOWN_AIDS.openPgp, label: 'OpenPGP'},
-  {aid: KNOWN_AIDS.fido, label: 'FIDO U2F'},
-  {aid: KNOWN_AIDS.fido2, label: 'FIDO2'},
-  {aid: KNOWN_AIDS.fido2Instance, label: 'FIDO2'},
-  {aid: KNOWN_AIDS.vivokeyOtp, label: 'VivoKey OTP'},
-  {aid: KNOWN_AIDS.ndefTag, label: 'NDEF'},
-  {aid: KNOWN_AIDS.oath, label: 'OATH (OTP)'},
-  {aid: KNOWN_AIDS.piv, label: 'PIV'},
-];
-
-/** Fidesmo AIDs — any of these present marks a Fidesmo device (Apex platform). */
-const FIDESMO_AIDS: ReadonlyArray<readonly number[]> = [
-  KNOWN_AIDS.fidesmoApp,
-  KNOWN_AIDS.fidesmoBatch,
-  KNOWN_AIDS.fidesmoPlatform,
-];
-
-/**
- * Resolve the library JavaCard probe's raw present-applet AIDs into the label
- * set + Fidesmo flag that {@link getJavacardImplantName} consumes.
- *
- * NOTE: the library ISD probe does not cover PPSE / payment applets, so the
- * 'Payment (PPSE)' + network labels that name a payment card or an Apex Ring
- * are never present here — see the JavaCard gap in {@link enrich}.
- */
-function javacardAppletLabels(aids: number[][]): {
-  labels: string[];
-  isFidesmo: boolean;
-} {
-  const labels = new Set<string>();
-  let isFidesmo = false;
-  for (const aid of aids) {
-    if (FIDESMO_AIDS.some(f => aidEquals(aid, f))) {
-      isFidesmo = true;
-      continue;
-    }
-    const match = JAVACARD_APPLET_LABELS.find(m => aidEquals(aid, m.aid));
-    if (match) {
-      labels.add(match.label);
-    }
-  }
-  if (isFidesmo) {
-    labels.add('Fidesmo');
-  }
-  return {labels: Array.from(labels), isFidesmo};
-}
-
-/**
  * Re-home the NTAG implant-name-in-memory read onto the library transponder's
  * `readUserMemory()`.
  *
@@ -255,32 +180,26 @@ async function readNtagImplantName(
 }
 
 /**
- * Map the library's parsed CPLC onto the app's {@link CplcInfo}, folding in the
- * resolved silicon / fabricator / OS names (pure lookups). The library's
- * `CPLCData` is field-for-field compatible with `CplcInfo` minus those names.
- */
-function toCplcInfo(cplc: NonNullable<LibJavaCardTransponder['cplc']>): CplcInfo {
-  return {
-    ...cplc,
-    icTypeName: identifyIcType(cplc.icType),
-    fabricatorName: identifyFabricator(cplc.icFabricator),
-    osName: identifyJcopVersion(cplc.osId),
-  };
-}
-
-/**
  * Apply the DT enrichment layer to an app `Transponder`, using the LIVE library
  * transponder (with its bound transport + already-probed data) still in hand.
  * Mutates `app` in place.
+ *
+ * The ISO-DEP DT probes (version + implementation substrate, JavaCard payment +
+ * storage, the DESFire / MIFARE Plus credential sweep, DESFire app enumeration,
+ * and the Spark 2 / NDEF implant name) live in {@link enrichIsoDep}, driven off
+ * the library's `sendApdu` / `isoGetVersion` / `enumerateApps` surface.
  */
 export async function enrich(
   app: Transponder,
   lib: LibTransponder,
   _opts?: IdentifyOptions,
 ): Promise<void> {
-  // 1. LIVE: NTAG implant name in user memory (Type 2 family only — the only
-  //    family the old `detectImplantNameInMemory` had a memory layout for).
-  if (app.family === ChipFamily.NTAG) {
+  const isIsoDep = lib instanceof IsoDepTransponder;
+
+  // 1. LIVE: NTAG implant name in user memory. Type 2 tags only — an NTAG DNA
+  //    reports `family === NTAG` but is ISO-DEP (its `readUserMemory()` is
+  //    empty); its implant name comes from the Spark 2 / NDEF probe instead.
+  if (app.family === ChipFamily.NTAG && !isIsoDep) {
     const name = await readNtagImplantName(lib);
     if (name) {
       app.implantName = name;
@@ -302,67 +221,16 @@ export async function enrich(
     }
   }
 
-  // 3. PURE(-ish): JavaCard product identity + CPLC, from the library's already-
-  //    probed `.cplc` / `.aids` (its identification path leaves them in hand).
-  if (app.family === ChipFamily.JAVACARD) {
-    const jc = lib as Partial<LibJavaCardTransponder>;
-
-    if (jc.cplc) {
-      app.cplc = toCplcInfo(jc.cplc);
-    }
-
-    const {labels, isFidesmo} = javacardAppletLabels(jc.aids ?? []);
-    if (labels.length > 0) {
-      app.installedApplets = labels;
-    }
-
-    // Name the product from the same signals the old JavaCard branch used.
-    // GAPS (library command surface): the ISD probe carries no PPSE/payment
-    // applet, and does not read the JavaCard Memory applet's persistentTotal,
-    // so the payment-card / Apex-Ring naming and the storage-only "J3R180"
-    // fallback cannot be reproduced. The IC-type path (Apex / Apex 2 /
-    // Fidesmo Wearable) still works from `.cplc` + Fidesmo AIDs.
-    // TODO(phase-5): needs library JavaCardTransponder to (a) probe PPSE +
-    // resolve the payment network, and (b) surface JavaCard Memory
-    // persistentTotal (storage), to fully re-home JavaCard product naming.
-    const identity = getJavacardImplantName(
-      labels.length > 0 ? labels : undefined,
-      isFidesmo,
-      undefined, // storageInfo — see gap above
-      app.cplc?.icTypeName,
-    );
-    if (identity.name && !app.implantName) {
-      app.implantName = identity.name;
-      app.productKind = identity.kind;
-    }
-    if (identity.evidence.length > 0) {
-      app.identityEvidence = identity.evidence;
-    }
-
-    // Credentials the card carries (pure — from the ISD result + SAK). The
-    // live DESFire/Plus credential sweep is NOT re-homed (it dies with
-    // detector.ts), so a JavaCard that also emulates DESFire won't list that
-    // DESFire credential here.
-    // TODO(phase-5): needs a library-surfaced credential list to re-home the
-    // full multi-credential sweep (DESFire EV3C, Plus emulation).
-    const credentials: DetectedCredential[] = credentialsForJavaCard({
-      sak: app.rawData.sak,
-      classicChipType: classicChipTypeFromSak(app.rawData.sak),
-      icTypeName: app.cplc?.icTypeName,
-      osName: app.cplc?.osName,
-      isdSelected: jc.isdSelected ?? false,
-    });
-    if (credentials.length > 0) {
-      app.credentials = credentials;
-    }
+  // 3. LIVE: ISO-DEP DT enrichment — version + implementation, JavaCard
+  //    payment/storage, credential sweep, DESFire apps, Spark 2 / NDEF. Keyed
+  //    on the JavaCard family (so a hand-built JavaCard fixture is enriched
+  //    from its `.cplc`/`.aids`) or an ISO-DEP transponder instance.
+  if (isIsoDep || app.family === ChipFamily.JAVACARD) {
+    await enrichIsoDep(app, lib);
   }
 
-  // 4. PURE: derive the capability set last, so it sees any credentials added
-  //    above. `implementation` is unset — the library exposes no substrate
-  //    signal (native vs JavaCard-emulated), so the substrate capability tags
-  //    (`native-silicon` / `smartcard-substrate` / `crypto1-only`) can't be
-  //    derived here.
-  // TODO(phase-5): needs a library-surfaced substrate/implementation signal.
+  // 4. PURE: derive the capability set last, so it sees the implementation
+  //    substrate and any credentials added above.
   app.capabilities = deriveCapabilities({
     type: app.type,
     implementation: app.implementation,
@@ -383,7 +251,11 @@ export async function enrich(
 export async function identifyTransponder(
   opts?: IdentifyOptions,
 ): Promise<Transponder> {
-  const lib = await NfcManager.identify(opts);
+  // `NfcManager.identify` is typed against the package-root `Transponder`
+  // (whose `ChipType` is a separately-declared enum); cast to the leaf `base`
+  // type so it lines up with the concrete leaf classes the enrichment narrows
+  // to. Same runtime object, matching structural surface.
+  const lib = (await NfcManager.identify(opts)) as unknown as LibTransponder;
   const app = libToAppTransponder(lib, opts);
   await enrich(app, lib, opts);
   return app;

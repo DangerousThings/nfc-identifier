@@ -69,7 +69,7 @@ import { useFixtureCapture } from '../hooks/useFixtureCapture';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { sampleCollector } from '../services/motion';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
-import { emulatedCredentials } from '../services/detection/credentials';
+import { emulatedCredentials } from '../services/detection/dtEnrich';
 import * as Clipboard from 'expo-clipboard';
 
 export function ResultScreen({ route, navigation }: ResultScreenProps) {

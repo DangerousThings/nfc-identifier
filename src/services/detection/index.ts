@@ -33,8 +33,12 @@ export {
   JCOP_IC_TYPES,
 } from './cplc';
 export type {IsdProbeResult} from './cplc';
-export {runCredentialSweep, emulatedCredentials} from './credentials';
+export {runCredentialSweep} from './credentials';
 export type {CredentialSweepResult} from './credentials';
+// `emulatedCredentials` was relocated to the staying `dtEnrich` module (its
+// former home `credentials.ts` transitively imports the soon-deleted chip-ID
+// modules); re-exported here so barrel consumers are unaffected.
+export {emulatedCredentials} from './dtEnrich';
 export {isMirroredWupSak} from './mifare';
 export {matchDtHistoricalSignature} from './dtproducts';
 export type {DtProductMatch} from './dtproducts';
