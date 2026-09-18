@@ -4,8 +4,12 @@
  */
 
 import {useState, useCallback, useEffect, useRef} from 'react';
+import {Platform} from 'react-native';
+import {isTagLoss} from '@dangerousthings/react-native-nfc-manager';
 import {nfcManager} from '../services/nfc';
-import {detectChip} from '../services/detection';
+import {identifyTransponder} from '../services/detection/adapter';
+import * as fixtureRecorder from '../services/detection/fixtureRecorder';
+import {isFixtureCaptureEnabled} from './useFixtureCapture';
 import {sampleCollector} from '../services/motion';
 import type {ScanState, RawTagData, ScanError, NFCStatus} from '../types/nfc';
 import type {Transponder} from '../types/detection';
@@ -144,26 +148,66 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
         return;
       }
 
-      // Perform scan with detection in one session
+      // Error thrown *inside* identify() (e.g. tag lost mid-identification).
+      // scanWithDetection swallows a detect-callback throw and returns just
+      // {tag}, so we capture the error here to map it after the session tears
+      // down (the library backdoor/GET_VERSION reads want a clean teardown
+      // before we touch React state).
+      let identifyError: unknown = null;
+
+      // Perform scan with detection in one session. The session is still armed
+      // (technology requested / reader mode) exactly as before; identify() runs
+      // on that already-connected tag — it does its own getTag() + transceive
+      // and never re-requests technology, so there is no double-connect.
       const result = await nfcManager.scanWithDetection(async tagData => {
         // Update progress: tag detected
         if (isMounted.current) {
           setScanProgress({step: 'Tag detected, identifying chip...', current: 2});
         }
 
-        // Run chip detection while NFC session is still active
-        const detectionResult = await detectChip(tagData, step => {
-          // Progress callback from detection
-          if (isMounted.current) {
-            setScanProgress({step, current: 3});
-          }
-        });
-
-        if (isMounted.current) {
-          setScanProgress({step: 'Detection complete', current: 4});
+        // Fixture capture: honour the same toggle the old detector read, and
+        // feed the library's per-exchange callback into the recorder so the
+        // "Copy fixture JSON" flow still works. Off → make sure any prior
+        // capture is cleared.
+        const captureEnabled = await isFixtureCaptureEnabled();
+        if (captureEnabled) {
+          fixtureRecorder.startCapture();
+        } else {
+          fixtureRecorder.stopCapture();
         }
 
-        return detectionResult.success ? detectionResult.transponder : null;
+        try {
+          // Run library identification while the NFC session is still active.
+          const transponder = await identifyTransponder({
+            onProgress: step => {
+              if (isMounted.current) {
+                setScanProgress({step, current: 3});
+              }
+            },
+            onExchange: captureEnabled
+              ? (cmd, resp) => fixtureRecorder.record('nfcA', cmd, resp)
+              : undefined,
+            // probeMagic: no dedicated UG4 setting exists in the app today, so
+            // this follows the task's flagged default — run the magic sweep on
+            // Android only (iOS has no backdoor support anyway).
+            probeMagic: Platform.OS === 'android',
+            platform: Platform.OS as 'android' | 'ios',
+            // The normal scan cannot send bit-level frames (that is the SEND RAW
+            // dev tool's dedicated session), so gen1a stays gated off.
+            rawAvailable: false,
+          });
+
+          if (isMounted.current) {
+            setScanProgress({step: 'Detection complete', current: 4});
+          }
+
+          return transponder;
+        } catch (err) {
+          identifyError = err;
+          // Re-throw so scanWithDetection tears the session down; the swallowed
+          // throw surfaces as {tag} with no detection, which we map below.
+          throw err;
+        }
       });
 
       if (!isMounted.current) {
@@ -181,6 +225,30 @@ export function useScan(consentStatus?: ConsentStatus): UseScanResult {
           if (canCapture) {
             sampleCollector.captureSample('scan_timeout');
           }
+        }
+      } else if (identifyError && result.detection === undefined) {
+        // identify() threw (tag lost / unexpected). Map library errors to the
+        // app's existing error states.
+        setState('error');
+        setError(
+          isTagLoss(identifyError)
+            ? {
+                type: 'TAG_LOST',
+                message: 'Tag was removed during scan',
+                originalError: identifyError,
+              }
+            : {
+                type: 'UNKNOWN',
+                message:
+                  identifyError instanceof Error
+                    ? identifyError.message
+                    : 'Chip identification failed',
+                originalError: identifyError,
+              },
+        );
+
+        if (canCapture) {
+          sampleCollector.captureSample('scan_timeout');
         }
       } else if (result.tag) {
         const detectedTransponder = result.detection ?? null;
