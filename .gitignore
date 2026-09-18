@@ -189,3 +189,6 @@ accel_data/
 .npmrc
 # vendored packages are consumed from git.dngr.us now
 /vendor/
+
+# local build logs / screenshots (dev only)
+/.build-logs/
