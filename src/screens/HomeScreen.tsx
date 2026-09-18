@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Alert, ScrollView, useWindowDimensions } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   DTButton,
   DTModal,
@@ -34,6 +35,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const { height: windowHeight } = useWindowDimensions();
   const [showSettings, setShowSettings] = useState(false);
   const [showSendRaw, setShowSendRaw] = useState(false);
+  // Hide START SCAN the moment it's pressed so its pressed-state bevel doesn't
+  // flicker during the navigation transition; restore it when we return.
+  const [navigatingToScan, setNavigatingToScan] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setNavigatingToScan(false);
+    }, []),
+  );
 
   const handleToggleConsent = useCallback(
     async (value: boolean) => {
@@ -96,11 +105,24 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           Scan any NFC transponder to find compatible Dangerous Things implants.
         </Text>
 
-        <DTButton
-          variant="normal"
-          onPress={() => navigation.navigate('Scan')}>
-          START SCAN
-        </DTButton>
+        {/* DTButton's inner container is flexGrow:1 (for buttons sharing a row);
+            in this column it otherwise fills all vertical space. The style prop
+            lands on the outer Pressable, so an explicit height caps it.
+            Swapped for a same-size spacer once pressed (see navigatingToScan)
+            to avoid a pressed-state flicker mid-transition and any layout jump. */}
+        {navigatingToScan ? (
+          <View style={styles.scanButton} />
+        ) : (
+          <DTButton
+            variant="normal"
+            style={styles.scanButton}
+            onPress={() => {
+              setNavigatingToScan(true);
+              navigation.navigate('Scan');
+            }}>
+            START SCAN
+          </DTButton>
+        )}
       </View>
 
       <View style={styles.settingsSection}>
@@ -234,6 +256,11 @@ const makeStyles = (c: AppColors) => StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  scanButton: {
+    height: 64,
+    flexGrow: 0,
+    alignSelf: 'center',
   },
   description: {
     color: c.light,
