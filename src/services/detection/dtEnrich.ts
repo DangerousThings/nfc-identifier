@@ -30,6 +30,15 @@
  *         MIFARE Plus emulation, GlobalPlatform ISD).
  *       - DESFire application enumeration; Spark 2 / NDEF implant name.
  *
+ *  3. **The re-homed NfcV (ISO 15693) DT probes** (phase 5 task 5c), driven off
+ *     the library's `Iso15693Transponder` command surface (`getSystemInfo`,
+ *     `readSingleBlock`) rather than raw transceive:
+ *       - NTAG5 VK Thermo product naming (AFI/DSFID from GET_SYSTEM_INFO).
+ *       - ISO 15693 Spark (Spark 1) implant name from the NDEF vivokey.co URL.
+ *     The NTAG5 *temperature* / Temptress reads are NOT re-homed — they need
+ *     NXP proprietary custom commands the library does not expose; see the
+ *     `FORK GAP:` note on {@link enrichNfcV}.
+ *
  * Everything live is best-effort: a probe failure leaves the field undefined
  * and never throws out of enrichment.
  *
@@ -70,6 +79,7 @@ import {DesfireTransponder} from '@dangerousthings/react-native-nfc-manager/src/
 import {JavaCardTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/javacard';
 import {matchPlusHistoricalSignature} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/plus';
 import {chipForClassicSak} from '@dangerousthings/react-native-nfc-manager/src/transponders/classic/classic';
+import {Iso15693Transponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/iso15693';
 import {
   selectAid,
   isSuccess,
@@ -953,4 +963,146 @@ function buildIsoDepCredentials(
   }
 
   return credentials;
+}
+
+// ============================================================================
+// NfcV (ISO 15693) DT probes, re-homed onto the library command surface
+// ============================================================================
+
+/**
+ * VK Thermo AFI value — "T" for thermo. A tag whose GET_SYSTEM_INFO AFI is this
+ * value is a VivoKey Thermo product. Relocated from `ntag5sensor.ts`.
+ */
+const VK_THERMO_AFI = 0x54;
+
+/**
+ * VK Thermo DSFID → product model. Relocated from `ntag5sensor.ts`
+ * (`VK_THERMO_DSFID`, sensor-type field dropped — only the product name is
+ * surfaced here). 0x09 → 112, 0x0A → 117, 0x0B → 119.
+ */
+const VK_THERMO_DSFID: Record<number, string> = {
+  0x09: '112',
+  0x0a: '117',
+  0x0b: '119',
+};
+
+/**
+ * Name a VK Thermo product from GET_SYSTEM_INFO AFI + DSFID. Pure interpretation
+ * relocated from `ntag5sensor.ts` `detectThermoFromSystemInfo` (the fast path —
+ * no I2C probing). Returns the implant name, or `undefined` when the AFI does
+ * not mark a Thermo.
+ *
+ * The DSFID selects the sensor variant (112/117/119); an unknown DSFID on a
+ * Thermo AFI still names it "VK Thermo".
+ */
+export function thermoNameFromSystemInfo(
+  afi?: number,
+  dsfid?: number,
+): string | undefined {
+  if (afi !== VK_THERMO_AFI) {
+    return undefined;
+  }
+  const model = dsfid !== undefined ? VK_THERMO_DSFID[dsfid] : undefined;
+  return model ? `VK Thermo ${model}` : 'VK Thermo';
+}
+
+/**
+ * ISO 15693 Spark (Spark 1) implant name, re-homed onto `lib.readSingleBlock`.
+ *
+ * Reads NDEF blocks 0-7 (block 0 = Capability Container, 1+ = NDEF message),
+ * decodes printable ASCII, and looks for a `vivokey.co/<code>` URL — the Spark
+ * implant signature. Interpretation ported from `iso15693.ts`
+ * `detectSparkImplant`; the block reads that used `transceiveNfcV(
+ * iso15693ReadSingleBlock(block))` now use the library's `readSingleBlock`
+ * (which already strips the response-flags byte). Best-effort → `undefined`.
+ *
+ * All ISO 15693 Spark chips (SLIX / SLIX2 / ICODE DNA) report as "Spark 1";
+ * the NTAG 424 DNA "Spark 2" is an ISO-DEP tag named in `detectSpark2Name`.
+ */
+export async function detectSparkName(
+  lib: Iso15693Transponder,
+): Promise<string | undefined> {
+  const ndefBytes: number[] = [];
+  for (let block = 0; block < 8; block++) {
+    try {
+      const data = await lib.readSingleBlock(block);
+      if (data.length === 0) {
+        break;
+      }
+      ndefBytes.push(...data);
+    } catch {
+      // Ran off the end of memory / tag lost — stop with what we have.
+      break;
+    }
+  }
+  if (ndefBytes.length === 0) {
+    return undefined;
+  }
+  const ascii = ndefBytes
+    .filter(b => b >= 0x20 && b <= 0x7e)
+    .map(b => String.fromCharCode(b))
+    .join('');
+  return /vivokey\.co\/[A-Za-z0-9]+/i.test(ascii) ? 'Spark 1' : undefined;
+}
+
+/**
+ * Enrich an ISO 15693 (NFC-V) app transponder using the LIVE library
+ * transponder. Re-homes the two DT NfcV probes:
+ *
+ *  1. **NTAG5 VK Thermo** — AFI/DSFID from `lib.getSystemInfo()` names the
+ *     Thermo product (`implantName` / `productKind`).
+ *  2. **ISO 15693 Spark** — the NDEF vivokey.co URL (via `lib.readSingleBlock`)
+ *     names a Spark 1 implant.
+ *
+ * FORK GAP: the NTAG5 sensor *temperature* (`temperature` / `temperature2`) and
+ * Temptress dual-sensor detection are NOT re-homed. The old `ntag5sensor.ts`
+ * read them by enabling energy harvesting and driving an I2C passthrough, which
+ * requires NXP proprietary custom commands — READ_CONFIG (0xC0),
+ * WRITE_CONFIG (0xC1), READ_I2C (0xD5), WRITE_I2C (0xD4) and READ_SRAM (0xD2),
+ * each wrapped in an NXP manufacturer-specific 15693 frame. The library's
+ * `Iso15693Transponder` exposes only the standard commands (GET_SYSTEM_INFO,
+ * READ/WRITE_SINGLE_BLOCK, READ_MULTIPLE_BLOCK), so there is no library method
+ * to send these. The fix is for the fork to add an NTAG5 NXP-custom-command
+ * surface (e.g. `Ntag5Transponder.readConfig(addr)` / `writeConfig(addr,data)`
+ * and an I2C passthrough `readI2c`/`writeI2c`/`readSram`, or a generic
+ * `nxpCustomCommand(cmd, params)`). Until then the temperature path is stubbed
+ * (fields left undefined) rather than raw-transceived. The Thermo signature
+ * read from config blocks 0x00-0x07 (`readThermoSignature`, READ_CONFIG 0xC0)
+ * is part of the same gap and is likewise omitted.
+ *
+ * Best-effort: a probe failure leaves the field undefined and never throws.
+ */
+export async function enrichNfcV(
+  app: Transponder,
+  lib: LibTransponder,
+): Promise<void> {
+  if (!(lib instanceof Iso15693Transponder)) {
+    return;
+  }
+
+  // 1. NTAG5 VK Thermo — fast-path product naming from GET_SYSTEM_INFO.
+  let sysInfo: {afi?: number; dsfid?: number} | undefined;
+  try {
+    sysInfo = await lib.getSystemInfo();
+  } catch {
+    sysInfo = undefined;
+  }
+  if (sysInfo && !app.implantName) {
+    const thermo = thermoNameFromSystemInfo(sysInfo.afi, sysInfo.dsfid);
+    if (thermo) {
+      app.implantName = thermo;
+      app.productKind = 'implant';
+    }
+  }
+  // FORK GAP (see the doc comment): NTAG5 temperature / Temptress reads need
+  // NXP custom commands the library does not expose — left undefined.
+
+  // 2. ISO 15693 Spark — NDEF vivokey.co URL names a Spark 1 implant.
+  if (!app.implantName) {
+    const spark = await detectSparkName(lib);
+    if (spark) {
+      app.implantName = spark;
+      app.productKind = 'implant';
+    }
+  }
 }

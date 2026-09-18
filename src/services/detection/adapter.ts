@@ -25,8 +25,12 @@
  *         onto the library's `sendApdu` / `isoGetVersion` / `enumerateApps` in
  *         {@link enrichIsoDep} (see `dtEnrich.ts`).
  *
- * OUT OF SCOPE (task 5c): the ISO 15693 Spark / NTAG 5 sensor & temperature
- * reads are not re-homed here.
+ *       - LIVE (NfcV / ISO 15693): NTAG5 VK Thermo product naming (AFI/DSFID
+ *         from GET_SYSTEM_INFO) and the ISO 15693 Spark 1 implant name (NDEF
+ *         vivokey.co URL), re-homed onto the library's `getSystemInfo` /
+ *         `readSingleBlock` in {@link enrichNfcV} (see `dtEnrich.ts`). The
+ *         NTAG5 sensor *temperature* / Temptress reads are a flagged FORK GAP
+ *         (they need NXP custom commands the library does not expose).
  *
  * Remaining library command-surface GAPS are flagged inline in `dtEnrich.ts`
  * with `FORK GAP:` — chiefly that `DesfireTransponder` drops the GET_VERSION
@@ -58,7 +62,7 @@ import {
 } from '../../types/detection';
 import {deriveCapabilities} from './capabilities';
 import {matchDtHistoricalSignature} from './dtproducts';
-import {enrichIsoDep, matchImplantNameInBytes} from './dtEnrich';
+import {enrichIsoDep, enrichNfcV, matchImplantNameInBytes} from './dtEnrich';
 
 /**
  * Format a byte array as colon-separated, upper-case hex — the string form the
@@ -227,6 +231,15 @@ export async function enrich(
   //    from its `.cplc`/`.aids`) or an ISO-DEP transponder instance.
   if (isIsoDep || app.family === ChipFamily.JAVACARD) {
     await enrichIsoDep(app, lib);
+  }
+
+  // 3b. LIVE: NfcV (ISO 15693) DT enrichment — NTAG5 VK Thermo product naming
+  //     (AFI/DSFID from GET_SYSTEM_INFO) and the ISO 15693 Spark 1 implant name
+  //     (NDEF vivokey.co URL), re-homed onto the library's `getSystemInfo` /
+  //     `readSingleBlock` in {@link enrichNfcV}. NTAG5 temperature / Temptress
+  //     reads are a flagged FORK GAP (see `dtEnrich.ts`).
+  if (app.family === ChipFamily.ISO15693) {
+    await enrichNfcV(app, lib);
   }
 
   // 4. PURE: derive the capability set last, so it sees the implementation

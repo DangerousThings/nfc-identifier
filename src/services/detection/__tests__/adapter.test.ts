@@ -14,6 +14,8 @@ import type {TagInfo} from '@dangerousthings/react-native-nfc-manager/src/transp
 import {decodeGetVersion} from '@dangerousthings/react-native-nfc-manager/src/transponders/probes/getversion';
 import {DesfireTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/desfire';
 import {JavaCardTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/javacard';
+import {IcodeTag} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/iso15693';
+import {Ntag5Transponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/ntag5';
 import {KNOWN_AIDS} from '../../nfc/commands';
 import {identifyTransponder, libToAppTransponder} from '../adapter';
 
@@ -424,5 +426,97 @@ describe('enrich — re-homed ISO-DEP DT probes (task 5b)', () => {
     expect(app.storageInfo?.persistentTotal).toBe(167736);
     // JavaCard Memory + J3R180 storage size, no CPLC → "J3R180" fallback name.
     expect(app.implantName).toBe('J3R180');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NfcV (ISO 15693) DT probes — task 5c
+// ---------------------------------------------------------------------------
+
+/**
+ * A scripted NfcV (ISO 15693) transport. `transceive` dispatches on the frame's
+ * opcode byte (bytes[1]): GET_SYSTEM_INFO = 0x2B, READ_SINGLE_BLOCK = 0x20.
+ * `sysInfo` is the raw GET_SYSTEM_INFO reply (or a function of it); `block(n)`
+ * returns a block's 4 data bytes (the library strips the response-flags byte,
+ * so we prepend 0x00). An undefined `sysInfo` answers the error flag.
+ */
+function nfcvTransport(
+  uid: number[],
+  opts: {sysInfo?: number[]; block?: (n: number) => number[]},
+): Transport {
+  return {
+    kind: 'nfcv',
+    uid,
+    transceive: async (cmd: number[]) => {
+      if (cmd[1] === 0x2b) {
+        return opts.sysInfo ?? [0x01, 0x0f]; // error flag → getSystemInfo throws
+      }
+      if (cmd[1] === 0x20 && opts.block) {
+        return [0x00, ...opts.block(cmd[2])];
+      }
+      return [0x01, 0x0f];
+    },
+  } as unknown as Transport;
+}
+
+describe('enrich — re-homed NfcV DT probes (task 5c)', () => {
+  beforeEach(() => mockIdentify.mockReset());
+
+  it('names a VK Thermo from GET_SYSTEM_INFO AFI/DSFID', async () => {
+    const uid = [0x01, 0, 0, 0, 0, 0x01, 0x04, 0xe0];
+    // infoFlags 0x03 = DSFID (0x01) + AFI (0x02); DSFID 0x0A → 117, AFI 0x54.
+    const sysInfo = [0x00, 0x03, ...uid, 0x0a, 0x54];
+    const t = nfcvTransport(uid, {sysInfo});
+    const lib = new Ntag5Transponder(
+      {uid},
+      t,
+      {chip: ChipType.NTAG5_LINK},
+    );
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.family).toBe(ChipFamily.ISO15693);
+    expect(app.implantName).toBe('VK Thermo 117');
+    expect(app.productKind).toBe('implant');
+    // FORK GAP: temperature reads need NXP custom commands the lib lacks.
+    expect(app.temperature).toBeUndefined();
+  });
+
+  it('names an ISO 15693 Spark 1 from the NDEF vivokey.co URL', async () => {
+    const uid = [0x02, 0, 0, 0, 0, 0x01, 0x04, 0xe0];
+    // 32-byte NDEF area whose ASCII carries a vivokey.co/<code> URL.
+    const buf: number[] = [
+      ...[...'  vivokey.co/sp4rk  '].map(c => c.charCodeAt(0)),
+    ];
+    while (buf.length < 32) {
+      buf.push(0x00);
+    }
+    const t = nfcvTransport(uid, {
+      // No system info (error) → Thermo path skipped, Spark path runs.
+      block: n => buf.slice(n * 4, n * 4 + 4),
+    });
+    const lib = new IcodeTag({uid}, t, {chip: ChipType.SLIX});
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.type).toBe(ChipType.SLIX);
+    expect(app.implantName).toBe('Spark 1');
+    expect(app.productKind).toBe('implant');
+  });
+
+  it('leaves a plain SLIX with no VK Thermo / Spark signature unnamed', async () => {
+    const uid = [0x03, 0, 0, 0, 0, 0x01, 0x04, 0xe0];
+    // Valid system info, AFI 0x00 (not Thermo); NDEF has no vivokey.co URL.
+    const sysInfo = [0x00, 0x03, ...uid, 0x00, 0x00];
+    const t = nfcvTransport(uid, {
+      sysInfo,
+      block: () => [0xde, 0xad, 0xbe, 0xef],
+    });
+    const lib = new IcodeTag({uid}, t, {chip: ChipType.SLIX2});
+    mockIdentify.mockResolvedValue(lib);
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.implantName).toBeUndefined();
+    expect(app.productKind).toBeUndefined();
   });
 });
