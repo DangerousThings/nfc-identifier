@@ -27,7 +27,7 @@ import { useColors, type AppColors } from '../hooks/useColors';
  * native build. JS-only OTA pushes do not bump this string — that's
  * intentional, since the binary on the device is what `version` describes.
  */
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4.0';
 
 export function VersionInfo() {
   const colors = useColors();
