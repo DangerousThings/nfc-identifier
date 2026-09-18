@@ -65,39 +65,32 @@ import {formatDesfireAidLabel, isHiddenAid} from '../../data/desfireAids';
 import {getJavacardImplantName} from './javacardIdentity';
 import {readNtag5Temperatures} from './nxpCommands';
 
-// ── Library command surface (leaf modules — pure TS, no native module) ───────
-// Imported from `.../src/transponders/...` rather than the package root: the
-// root barrel pulls in `NativeNfcManager`, which does not exist under Jest.
-// The leaf modules are the concrete classes (needed for `instanceof`) and pure
-// helpers. See `src/types/detection.ts` for the same pattern.
-// The library `Transponder` base type — imported from the leaf `base` module
-// (type-only, erased at runtime) so its `ChipType` matches the concrete leaf
-// classes below that `instanceof` narrows to. (The package-root `Transponder`
-// declaration re-declares `ChipType` as a separate enum, which would make every
-// `instanceof` narrowing collapse to `never`.) Concrete classes are the leaf
-// modules — real runtime values needed for `instanceof`.
-import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/base';
-import {IsoDepTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/isodep';
-import {DesfireTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/desfire';
-import {JavaCardTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/javacard';
-import {matchPlusHistoricalSignature} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/plus';
-import {chipForClassicSak} from '@dangerousthings/react-native-nfc-manager/src/transponders/classic/classic';
-import {Iso15693Transponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/iso15693';
+// ── Library command surface ──────────────────────────────────────────────────
+// The concrete transponder classes (needed for `instanceof`), the pure helpers,
+// and the `Transponder` base type all come from the standalone
+// `@dangerousthings/transponders` package. It is side-effect-free and
+// dependency-free, so importing from its root is safe under Jest (no native
+// module is pulled in). See `src/types/detection.ts` for the same pattern.
 import {
+  type Transponder as LibTransponder,
+  IsoDepTransponder,
+  DesfireTransponder,
+  JavaCardTransponder,
+  matchPlusHistoricalSignature,
+  chipForClassicSak,
+  Iso15693Transponder,
   selectAid,
   isSuccess,
   GET_CPLC,
   type ApduResponse,
-} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/apdu';
-import {
   parseCPLC,
   identifyIcType,
   identifyFabricator,
   identifyJcopVersion,
   identifyJcopPlatform,
   type CPLCData,
-} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/cplc';
-import {implementationToTransponderField} from '@dangerousthings/react-native-nfc-manager/src/transponders/probes/getversion';
+  implementationToTransponderField,
+} from '@dangerousthings/transponders';
 
 // Re-export the CPLC lookups so the rest of the app has a single, staying
 // import site for them (they used to live in the soon-deleted `cplc.ts`).

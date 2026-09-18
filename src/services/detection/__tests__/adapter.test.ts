@@ -8,14 +8,16 @@
  */
 
 import {ChipType, ChipFamily} from '../../../types/detection';
-import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/base';
-import type {Transport} from '@dangerousthings/react-native-nfc-manager/src/transponders/transport';
-import type {TagInfo} from '@dangerousthings/react-native-nfc-manager/src/transponders/types';
-import {decodeGetVersion} from '@dangerousthings/react-native-nfc-manager/src/transponders/probes/getversion';
-import {DesfireTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/desfire';
-import {JavaCardTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/javacard';
-import {IcodeTag} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/iso15693';
-import {Ntag5Transponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/nfcv/ntag5';
+import {
+  type Transponder as LibTransponder,
+  type Transport,
+  type TagInfo,
+  decodeGetVersion,
+  DesfireTransponder,
+  JavaCardTransponder,
+  IcodeTag,
+  Ntag5Transponder,
+} from '@dangerousthings/transponders';
 import {KNOWN_AIDS} from '../../nfc/commands';
 import {identifyTransponder, libToAppTransponder} from '../adapter';
 

@@ -3,22 +3,18 @@
  * Types for chip identification and transponder detection
  */
 
-// Re-export the library's chip identification enums + family classifier. These
-// are imported from the side-effect-free leaf module `.../src/transponders/types`
-// rather than the package root: the root's barrel pulls in `NativeNfcManager`
-// (a `NativeEventEmitter` over a native module that does not exist under Jest),
-// which would break every module that imports these types in tests. The leaf
-// module has zero imports and exports the identical symbols the root does (the
-// root re-exports them via `export * from './transponders'`). The library's
-// `ChipType` is a strict superset of the app's former enum (adds
-// NTAG210/NTAG212/ST25TV/ST25DV) and its `getChipFamily` is behaviourally
-// identical for every member the app uses (it only adds an extra ST25 branch),
-// so re-exporting them is safe.
+// Re-export the library's chip identification enums + family classifier from
+// the standalone `@dangerousthings/transponders` package. It is side-effect-free
+// and dependency-free, so importing from its root is safe under Jest (no native
+// module is pulled in). The library's `ChipType` is a strict superset of the
+// app's former enum (adds NTAG210/NTAG212/ST25TV/ST25DV) and its `getChipFamily`
+// is behaviourally identical for every member the app uses (it only adds an
+// extra ST25 branch), so re-exporting them is safe.
 import {
   ChipType,
   ChipFamily,
   getChipFamily,
-} from '@dangerousthings/react-native-nfc-manager/src/transponders/types';
+} from '@dangerousthings/transponders';
 
 // Import locally (so the lookup tables below can key off `ChipType`) and
 // re-export for the rest of the app.

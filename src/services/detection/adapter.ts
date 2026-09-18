@@ -41,17 +41,16 @@
  */
 
 import {Platform} from 'react-native';
-import NfcManager, {
+import NfcManager from '@dangerousthings/react-native-nfc-manager';
+// Transponder types, the `IsoDepTransponder` base class (needed for
+// `instanceof`), and the `identify()` options all come from the standalone,
+// side-effect-free `@dangerousthings/transponders` package. See `dtEnrich.ts`
+// for the same pattern.
+import {
   type IdentifyOptions,
-} from '@dangerousthings/react-native-nfc-manager';
-// The library `Transponder` type is taken from the leaf `base` module (not the
-// package root) so its `ChipType` matches the concrete leaf classes that the
-// enrichment `instanceof`-narrows to; the package-root declaration re-declares
-// `ChipType` as a separate enum. The `IsoDepTransponder` base class is likewise
-// a leaf import so its runtime value is available under Jest without pulling in
-// the native module. See `dtEnrich.ts` for the same pattern.
-import type {Transponder as LibTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/base';
-import {IsoDepTransponder} from '@dangerousthings/react-native-nfc-manager/src/transponders/isodep/isodep';
+  type Transponder as LibTransponder,
+  IsoDepTransponder,
+} from '@dangerousthings/transponders';
 
 import {
   CHIP_CLONEABILITY,

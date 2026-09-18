@@ -5,7 +5,7 @@
 
 import {useState, useCallback, useEffect, useRef} from 'react';
 import {Platform} from 'react-native';
-import {isTagLoss} from '@dangerousthings/react-native-nfc-manager';
+import {isTagLoss} from '@dangerousthings/transponders';
 import {nfcManager} from '../services/nfc';
 import {identifyTransponder} from '../services/detection/adapter';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
