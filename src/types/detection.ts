@@ -3,137 +3,27 @@
  * Types for chip identification and transponder detection
  */
 
-/**
- * Supported chip types
- */
-export enum ChipType {
-  // NTAG 21x family (ISO 14443-3A, Type 2)
-  NTAG213 = 'NTAG213',
-  NTAG215 = 'NTAG215',
-  NTAG216 = 'NTAG216',
-  NTAG_I2C_1K = 'NTAG_I2C_1K',
-  NTAG_I2C_2K = 'NTAG_I2C_2K',
-  NTAG_I2C_PLUS_1K = 'NTAG_I2C_PLUS_1K',
-  NTAG_I2C_PLUS_2K = 'NTAG_I2C_PLUS_2K',
+// Re-export the library's chip identification enums + family classifier. These
+// are imported from the side-effect-free leaf module `.../src/transponders/types`
+// rather than the package root: the root's barrel pulls in `NativeNfcManager`
+// (a `NativeEventEmitter` over a native module that does not exist under Jest),
+// which would break every module that imports these types in tests. The leaf
+// module has zero imports and exports the identical symbols the root does (the
+// root re-exports them via `export * from './transponders'`). The library's
+// `ChipType` is a strict superset of the app's former enum (adds
+// NTAG210/NTAG212/ST25TV/ST25DV) and its `getChipFamily` is behaviourally
+// identical for every member the app uses (it only adds an extra ST25 branch),
+// so re-exporting them is safe.
+import {
+  ChipType,
+  ChipFamily,
+  getChipFamily,
+} from '@dangerousthings/react-native-nfc-manager/src/transponders/types';
 
-  // NTAG 5 family (ISO 15693, NFC-V)
-  NTAG5_LINK = 'NTAG5_LINK',
-  NTAG5_BOOST = 'NTAG5_BOOST',
-  NTAG5_SWITCH = 'NTAG5_SWITCH',
+// Import locally (so the lookup tables below can key off `ChipType`) and
+// re-export for the rest of the app.
+export {ChipType, ChipFamily, getChipFamily};
 
-  // NTAG DNA family (ISO 14443-4, Type 4)
-  NTAG413_DNA = 'NTAG413_DNA',
-  NTAG424_DNA = 'NTAG424_DNA',
-  NTAG424_DNA_TT = 'NTAG424_DNA_TT', // TagTamper variant
-
-  NTAG_UNKNOWN = 'NTAG_UNKNOWN',
-
-  // MIFARE Classic family
-  MIFARE_CLASSIC_1K = 'MIFARE_CLASSIC_1K',
-  MIFARE_CLASSIC_4K = 'MIFARE_CLASSIC_4K',
-  MIFARE_CLASSIC_MINI = 'MIFARE_CLASSIC_MINI',
-
-  // MIFARE DESFire family
-  DESFIRE_EV1 = 'DESFIRE_EV1',
-  DESFIRE_EV2 = 'DESFIRE_EV2',
-  DESFIRE_EV3 = 'DESFIRE_EV3',
-  /**
-   * DESFire EV3C — the "C" is for Classic. An EV3 that also exposes a
-   * MIFARE Classic credential. Identified when a Classic SAK card answers
-   * DESFire GetVersion with EV3; the Classic interface is retained in
-   * `Transponder.credentials`.
-   */
-  DESFIRE_EV3C = 'DESFIRE_EV3C',
-  DESFIRE_LIGHT = 'DESFIRE_LIGHT',
-  DESFIRE_UNKNOWN = 'DESFIRE_UNKNOWN',
-
-  // MIFARE DUOX (HW Major 0xA0 on DESFire family GetVersion)
-  MIFARE_DUOX = 'MIFARE_DUOX',
-
-  // MIFARE Plus
-  MIFARE_PLUS_S = 'MIFARE_PLUS_S',
-  MIFARE_PLUS_X = 'MIFARE_PLUS_X',
-  MIFARE_PLUS_SE = 'MIFARE_PLUS_SE',
-  MIFARE_PLUS_EV1 = 'MIFARE_PLUS_EV1',
-  MIFARE_PLUS_EV2 = 'MIFARE_PLUS_EV2',
-  MIFARE_PLUS = 'MIFARE_PLUS', // Generic
-
-  // NTAG X DNA (HW Major 0xA0 on NTAG DNA family GetVersion)
-  NTAG_X_DNA = 'NTAG_X_DNA',
-
-  // MIFARE 2GO virtual cards (cloud-backed)
-  MIFARE_2GO = 'MIFARE_2GO',
-
-  // MIFARE Ultralight family
-  ULTRALIGHT = 'ULTRALIGHT',
-  ULTRALIGHT_C = 'ULTRALIGHT_C',
-  ULTRALIGHT_EV1 = 'ULTRALIGHT_EV1',
-  ULTRALIGHT_NANO = 'ULTRALIGHT_NANO',
-  ULTRALIGHT_AES = 'ULTRALIGHT_AES',
-
-  // ISO 15693 (NFC-V) - ICODE family
-  SLIX = 'SLIX',
-  SLIX2 = 'SLIX2',
-  SLIX_S = 'SLIX_S',
-  SLIX_L = 'SLIX_L',
-  ICODE_DNA = 'ICODE_DNA',
-  ISO15693_UNKNOWN = 'ISO15693_UNKNOWN',
-
-  // JavaCard
-  JCOP4 = 'JCOP4',
-  JAVACARD_UNKNOWN = 'JAVACARD_UNKNOWN',
-
-  // Generic/Unknown
-  ISO14443A_UNKNOWN = 'ISO14443A_UNKNOWN',
-  ISO14443B_UNKNOWN = 'ISO14443B_UNKNOWN',
-  UNKNOWN = 'UNKNOWN',
-}
-
-/**
- * Chip family categories
- */
-export enum ChipFamily {
-  NTAG = 'NTAG',
-  MIFARE_CLASSIC = 'MIFARE_CLASSIC',
-  MIFARE_DESFIRE = 'MIFARE_DESFIRE',
-  MIFARE_PLUS = 'MIFARE_PLUS',
-  ISO15693 = 'ISO15693',
-  JAVACARD = 'JAVACARD',
-  UNKNOWN = 'UNKNOWN',
-}
-
-/**
- * Get the chip family for a chip type
- */
-export function getChipFamily(type: ChipType): ChipFamily {
-  // NTAG5 is ISO 15693 / NFC Type 5 — must check before generic NTAG
-  if (type.startsWith('NTAG5')) {
-    return ChipFamily.ISO15693;
-  }
-  if (type.startsWith('NTAG')) {
-    return ChipFamily.NTAG;
-  }
-  if (type.startsWith('ULTRALIGHT')) {
-    return ChipFamily.NTAG; // Ultralight is in the NTAG/Type 2 family
-  }
-  if (type.startsWith('MIFARE_CLASSIC')) {
-    return ChipFamily.MIFARE_CLASSIC;
-  }
-  if (type.startsWith('DESFIRE') || type === ChipType.MIFARE_DUOX) {
-    // DUOX is the DESFire successor — same family for matcher purposes
-    return ChipFamily.MIFARE_DESFIRE;
-  }
-  if (type.startsWith('MIFARE_PLUS')) {
-    return ChipFamily.MIFARE_PLUS;
-  }
-  if (type.startsWith('SLIX') || type.startsWith('ICODE') || type.startsWith('ISO15693')) {
-    return ChipFamily.ISO15693;
-  }
-  if (type.startsWith('JCOP') || type.startsWith('JAVACARD')) {
-    return ChipFamily.JAVACARD;
-  }
-  return ChipFamily.UNKNOWN;
-}
 
 /**
  * NTAG version information from GET_VERSION response
@@ -417,6 +307,8 @@ export interface DetectionResult {
  */
 export const CHIP_NAMES: Record<ChipType, string> = {
   // NTAG 21x family
+  [ChipType.NTAG210]: 'NTAG210',
+  [ChipType.NTAG212]: 'NTAG212',
   [ChipType.NTAG213]: 'NTAG213',
   [ChipType.NTAG215]: 'NTAG215',
   [ChipType.NTAG216]: 'NTAG216',
@@ -480,6 +372,8 @@ export const CHIP_NAMES: Record<ChipType, string> = {
   [ChipType.SLIX_S]: 'ICODE SLIX-S',
   [ChipType.SLIX_L]: 'ICODE SLIX-L',
   [ChipType.ICODE_DNA]: 'ICODE DNA',
+  [ChipType.ST25TV]: 'ST25TV',
+  [ChipType.ST25DV]: 'ST25DV',
   [ChipType.ISO15693_UNKNOWN]: 'ISO 15693 Tag',
 
   // JavaCard
@@ -536,6 +430,8 @@ export const CHIP_CLONEABILITY: Record<
   {cloneable: boolean; note?: string}
 > = {
   // NTAG 21x - all cloneable
+  [ChipType.NTAG210]: {cloneable: true},
+  [ChipType.NTAG212]: {cloneable: true},
   [ChipType.NTAG213]: {cloneable: true},
   [ChipType.NTAG215]: {cloneable: true},
   [ChipType.NTAG216]: {cloneable: true},
@@ -680,6 +576,8 @@ export const CHIP_CLONEABILITY: Record<
     cloneable: false,
     note: 'Cryptographic authentication prevents cloning',
   },
+  [ChipType.ST25TV]: {cloneable: true},
+  [ChipType.ST25DV]: {cloneable: true},
   [ChipType.ISO15693_UNKNOWN]: {
     cloneable: true,
     note: 'May require verification',
