@@ -236,8 +236,9 @@ export async function enrich(
   // 3b. LIVE: NfcV (ISO 15693) DT enrichment — NTAG5 VK Thermo product naming
   //     (AFI/DSFID from GET_SYSTEM_INFO) and the ISO 15693 Spark 1 implant name
   //     (NDEF vivokey.co URL), re-homed onto the library's `getSystemInfo` /
-  //     `readSingleBlock` in {@link enrichNfcV}. NTAG5 temperature / Temptress
-  //     reads are a flagged FORK GAP (see `dtEnrich.ts`).
+  //     `readSingleBlock` in {@link enrichNfcV}. The NTAG5 VK Thermo /
+  //     Temptress temperature is read app-side there via the NXP custom
+  //     commands over the generic raw NfcV primitive (see `nxpCommands.ts`).
   if (app.family === ChipFamily.ISO15693) {
     await enrichNfcV(app, lib);
   }

@@ -464,6 +464,35 @@ class NFCManagerService {
   }
 
   /**
+   * Send one raw ISO 15693 (NfcV) frame to the tag currently in the field and
+   * return its response bytes (response-flags byte included, exactly as the tag
+   * answers). Fires on demand — it does NOT wait for a fresh tap. The GENERIC
+   * NfcV analogue of {@link sendRawNfcA}: it carries no protocol knowledge, it
+   * just moves bytes, so a caller can drive vendor-proprietary frames (e.g. the
+   * app's NTAG5 NXP custom commands) over it.
+   *
+   * Android: `transceiveToPresentTag` connects to the tag the active reader
+   * session already discovered, transceives, then releases the tech — and its
+   * connect → close → connect handshake gives the frame a clean activation
+   * (the same fresh-connection state SEND RAW / the UG4 backdoor rely on), so
+   * a preceding library read on the scan connection does not dirty it.
+   *
+   * iOS: CoreNFC exposes no raw ISO 15693 transceive — only the structured
+   * `iso15693HandlerIOS.customCommand({flags, code, params})`. So there is no
+   * raw-frame primitive to mirror here; callers that need an NXP custom command
+   * on iOS go through that structured API directly (see `nxpCommands.ts`).
+   */
+  async sendRawNfcV(command: number[]): Promise<number[]> {
+    if (Platform.OS === 'ios') {
+      throw new Error(
+        'sendRawNfcV: raw ISO 15693 frames are unsupported on iOS; use iso15693HandlerIOS.customCommand',
+      );
+    }
+
+    return NfcManager.transceiveToPresentTag(command, NfcTech.NfcV);
+  }
+
+  /**
    * Check NFC status (supported and enabled)
    */
   async getStatus(): Promise<NFCStatus> {

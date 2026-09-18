@@ -106,6 +106,20 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
+// The app NFC wrapper is pulled in transitively (detector → ntag5sensor →
+// nxpCommands → NFCManager). Its module-scope reader-mode flag reads from
+// NfcAdapter, which the library mock above does not provide, so stub the
+// wrapper. No detector fixture here exercises the NTAG5 sensor path, so
+// `sendRawNfcV` is never actually called.
+jest.mock('../../nfc/NFCManager', () => ({
+  __esModule: true,
+  nfcManager: {
+    sendRawNfcV: jest.fn(async () => {
+      throw new Error('sendRawNfcV not available in detector.test');
+    }),
+  },
+}));
+
 // ---------- import after mocks ----------
 
 import {detectChip} from '../detector';

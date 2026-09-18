@@ -33,6 +33,17 @@ jest.mock('@dangerousthings/react-native-nfc-manager', () => ({
   },
 }));
 
+// The app NFC wrapper: only `nfcManager.sendRawNfcV` is exercised by the
+// NfcV enrichment (the NTAG5 temperature read goes over the generic raw NfcV
+// primitive). Mocked so no native module is loaded.
+const mockSendRawNfcV = jest.fn();
+jest.mock('../../nfc/NFCManager', () => ({
+  __esModule: true,
+  nfcManager: {
+    sendRawNfcV: (...args: unknown[]) => mockSendRawNfcV(...args),
+  },
+}));
+
 /**
  * Build a minimal fake LIBRARY transponder. Only the fields the adapter reads
  * need to be present; the rest of the interface is filled with inert stubs and
@@ -459,8 +470,48 @@ function nfcvTransport(
   } as unknown as Transport;
 }
 
+/**
+ * Script `nfcManager.sendRawNfcV` for a healthy NTAG5 temperature read. The
+ * NXP custom-command frame is `[0x22, cmd, 0x04, ...uidLsb(8), addr, ...]`, so
+ * we dispatch on the command byte (frame[1]) and the register address
+ * (frame[11]). Every reply keeps the ISO 15693 response-flags byte (0x00 =
+ * success) that `sendNxpCustomCommand` strips.
+ *
+ *   - WRITE_CONFIG / WRITE_I2C / READ_I2C → bare success (no data).
+ *   - READ_CONFIG @ EH_CONFIG_REG (0xA7) → LOAD_OK bit set (0x80).
+ *   - READ_CONFIG @ I2C_M_STATUS_REG (0xAD) → transaction success (0x06).
+ *   - READ_SRAM → the two temperature bytes (`tempHi`/`tempLo`).
+ */
+function scriptThermoTemperature(tempHi: number, tempLo: number) {
+  return (frame: number[]): number[] => {
+    const cmd = frame[1];
+    const addr = frame[11];
+    switch (cmd) {
+      case 0xc1: // WRITE_CONFIG
+      case 0xd4: // WRITE_I2C
+      case 0xd5: // READ_I2C
+        return [0x00];
+      case 0xc0: // READ_CONFIG
+        if (addr === 0xa7) {
+          return [0x00, 0x80]; // EH LOAD_OK
+        }
+        if (addr === 0xad) {
+          return [0x00, 0x06]; // I2C transaction success
+        }
+        return [0x00, 0x00];
+      case 0xd2: // READ_SRAM → temperature bytes
+        return [0x00, tempHi, tempLo, 0x00, 0x00];
+      default:
+        return [0x00];
+    }
+  };
+}
+
 describe('enrich — re-homed NfcV DT probes (task 5c)', () => {
-  beforeEach(() => mockIdentify.mockReset());
+  beforeEach(() => {
+    mockIdentify.mockReset();
+    mockSendRawNfcV.mockReset();
+  });
 
   it('names a VK Thermo from GET_SYSTEM_INFO AFI/DSFID', async () => {
     const uid = [0x01, 0, 0, 0, 0, 0x01, 0x04, 0xe0];
@@ -478,8 +529,30 @@ describe('enrich — re-homed NfcV DT probes (task 5c)', () => {
     expect(app.family).toBe(ChipFamily.ISO15693);
     expect(app.implantName).toBe('VK Thermo 117');
     expect(app.productKind).toBe('implant');
-    // FORK GAP: temperature reads need NXP custom commands the lib lacks.
+    // sendRawNfcV unscripted (returns undefined) → the energy-harvest / sensor
+    // read fails best-effort and the temperature field stays unset.
     expect(app.temperature).toBeUndefined();
+  });
+
+  it('reads a VK Thermo live temperature over the generic raw NfcV primitive', async () => {
+    const uid = [0x01, 0, 0, 0, 0, 0x01, 0x04, 0xe0];
+    // AFI 0x54 (Thermo), DSFID 0x0A → 117 (TMP117 sensor).
+    const sysInfo = [0x00, 0x03, ...uid, 0x0a, 0x54];
+    const t = nfcvTransport(uid, {sysInfo});
+    const lib = new Ntag5Transponder({uid}, t, {chip: ChipType.NTAG5_LINK});
+    mockIdentify.mockResolvedValue(lib);
+
+    // TMP117: raw 0x0C80 = 3200 → 3200 * 0.0078125 = 25.0 °C / 77.0 °F.
+    mockSendRawNfcV.mockImplementation(async (frame: number[]) =>
+      scriptThermoTemperature(0x0c, 0x80)(frame),
+    );
+
+    const app = await identifyTransponder({platform: 'android'});
+    expect(app.implantName).toBe('VK Thermo 117');
+    expect(app.temperature).toEqual({celsius: 25, fahrenheit: 77});
+    // The temperature read goes over the generic raw NfcV primitive, not the
+    // library transport.
+    expect(mockSendRawNfcV).toHaveBeenCalled();
   });
 
   it('names an ISO 15693 Spark 1 from the NDEF vivokey.co URL', async () => {

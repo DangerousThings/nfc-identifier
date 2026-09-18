@@ -158,119 +158,14 @@ export function iso15693ReadMultipleBlocks(
 }
 
 // ============================================================================
-// NXP Custom ISO 15693 Commands (for NTAG5 Link/Boost I2C passthrough)
-// Reference: NXP NTAG 5 link datasheet, flipper-thermo/helpers/vk_thermo_nfc.c
+// NXP Custom ISO 15693 Commands (NTAG5 Link/Boost I2C passthrough)
 // ============================================================================
-
-/** NXP manufacturer code for custom commands */
-export const NXP_MANUF_CODE = 0x04;
-
-/** NXP custom command codes */
-export const NXP_CMD = {
-  READ_CONFIG: 0xc0,
-  WRITE_CONFIG: 0xc1,
-  READ_SRAM: 0xd2,
-  WRITE_I2C: 0xd4,
-  READ_I2C: 0xd5,
-} as const;
-
-/** ISO 15693 flags */
-const ISO15693_FLAG_HIGH_DATA_RATE = 0x02;
-const ISO15693_FLAG_ADDRESSED = 0x20;
-
-/**
- * Parse UID hex string to byte array
- * Handles formats: "AA:BB:CC", "AABBCC", "AA BB CC"
- */
-export function parseUidToBytes(uidString: string): number[] {
-  const clean = uidString.replace(/[:\s-]/g, '');
-  const bytes: number[] = [];
-  for (let i = 0; i < clean.length; i += 2) {
-    bytes.push(parseInt(clean.substring(i, i + 2), 16));
-  }
-  return bytes;
-}
-
-/**
- * Reverse byte array for LSB-first UID encoding in ISO 15693 addressed commands
- */
-export function uidBytesLsbFirst(uidBytes: number[]): number[] {
-  return [...uidBytes].reverse();
-}
-
-/**
- * Build an NXP custom command in addressed mode
- * Format: [0x22][CMD][0x04][UID LSB-first 8 bytes][params...]
- *
- * Note: On Android, NfcV.transceive() sends raw bytes including flags.
- * On iOS, we use customCommand() which handles flags/UID differently.
- */
-export function buildNxpCustomCommand(
-  cmd: number,
-  uidBytes: number[],
-  params: number[],
-): number[] {
-  return [
-    ISO15693_FLAG_HIGH_DATA_RATE | ISO15693_FLAG_ADDRESSED, // 0x22
-    cmd,
-    NXP_MANUF_CODE, // 0x04
-    ...uidBytesLsbFirst(uidBytes),
-    ...params,
-  ];
-}
-
-/**
- * Send NXP custom command via ISO 15693
- * Platform-aware: uses raw transceive on Android, customCommand on iOS
- *
- * Returns response data (without flags byte) or throws on failure
- */
-export async function sendNxpCustomCommand(
-  cmd: number,
-  uidBytes: number[],
-  params: number[],
-): Promise<number[]> {
-  if (Platform.OS === 'ios') {
-    // iOS: try customCommand API from iso15693HandlerIOS
-    try {
-      const customRequestParameters = [
-        ...uidBytesLsbFirst(uidBytes),
-        ...params,
-      ];
-      const response =
-        await NfcManager.iso15693HandlerIOS.customCommand({
-          flags: ISO15693_FLAG_HIGH_DATA_RATE | ISO15693_FLAG_ADDRESSED,
-          customCommandCode: cmd,
-          customRequestParameters,
-        });
-      return Array.from(response);
-    } catch (error) {
-      console.debug('[commands] iOS customCommand failed:', error);
-      throw error;
-    }
-  }
-
-  // Android: raw transceive with full command bytes
-  const fullCommand = buildNxpCustomCommand(cmd, uidBytes, params);
-  const response = await transceiveNfcV(fullCommand);
-
-  // Parse response: first byte is flags, rest is data
-  if (response.length === 0) {
-    throw new Error('Empty response from NXP command');
-  }
-
-  const flagByte = response[0];
-  if (flagByte & 0x01) {
-    // Error flag set
-    const errorCode = response.length > 1 ? response[1] : 0;
-    throw new Error(
-      `NXP command 0x${cmd.toString(16)} error: flag=0x${flagByte.toString(16)}, code=0x${errorCode.toString(16)}`,
-    );
-  }
-
-  // Success - return data after flags byte
-  return response.slice(1);
-}
+//
+// RELOCATED: the NXP custom-command frame builder (NXP_CMD / NXP_MANUF_CODE /
+// buildNxpCustomCommand / sendNxpCustomCommand) and the UID helpers
+// (parseUidToBytes / uidBytesLsbFirst) moved to the STAYING
+// `src/services/detection/nxpCommands.ts` module — DT custom hardware that is
+// driven over the generic raw NfcV primitive `nfcManager.sendRawNfcV`.
 
 // ============================================================================
 // Known AIDs

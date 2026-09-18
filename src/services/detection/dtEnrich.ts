@@ -35,9 +35,11 @@
  *     `readSingleBlock`) rather than raw transceive:
  *       - NTAG5 VK Thermo product naming (AFI/DSFID from GET_SYSTEM_INFO).
  *       - ISO 15693 Spark (Spark 1) implant name from the NDEF vivokey.co URL.
- *     The NTAG5 *temperature* / Temptress reads are NOT re-homed — they need
- *     NXP proprietary custom commands the library does not expose; see the
- *     `FORK GAP:` note on {@link enrichNfcV}.
+ *     The NTAG5 VK Thermo / Temptress *temperature* read (task 5c-fix) is also
+ *     wired into {@link enrichNfcV}, but APP-SIDE: it needs NXP proprietary
+ *     custom commands that are DT custom hardware and do NOT belong in the
+ *     library, so it goes through `nxpCommands.ts` over the library's GENERIC
+ *     raw NfcV primitive `nfcManager.sendRawNfcV` rather than a library method.
  *
  * Everything live is best-effort: a probe failure leaves the field undefined
  * and never throws out of enrichment.
@@ -61,6 +63,7 @@ import {
 import {KNOWN_AIDS} from '../nfc/commands';
 import {formatDesfireAidLabel, isHiddenAid} from '../../data/desfireAids';
 import {getJavacardImplantName} from './javacardIdentity';
+import {readNtag5Temperatures} from './nxpCommands';
 
 // ── Library command surface (leaf modules — pure TS, no native module) ───────
 // Imported from `.../src/transponders/...` rather than the package root: the
@@ -1046,29 +1049,37 @@ export async function detectSparkName(
 }
 
 /**
+ * The NTAG5 chip types that carry an I2C passthrough (VK Thermo / Temptress
+ * temperature sensors). NTAG5 Switch has no I2C master, so it is excluded —
+ * this mirrors the old detector's `isNtag5WithI2c` gate.
+ */
+function isNtag5SensorChip(type: ChipType): boolean {
+  return type === ChipType.NTAG5_LINK || type === ChipType.NTAG5_BOOST;
+}
+
+/**
  * Enrich an ISO 15693 (NFC-V) app transponder using the LIVE library
- * transponder. Re-homes the two DT NfcV probes:
+ * transponder. Re-homes the DT NfcV probes:
  *
  *  1. **NTAG5 VK Thermo** — AFI/DSFID from `lib.getSystemInfo()` names the
  *     Thermo product (`implantName` / `productKind`).
  *  2. **ISO 15693 Spark** — the NDEF vivokey.co URL (via `lib.readSingleBlock`)
  *     names a Spark 1 implant.
+ *  3. **NTAG5 temperature** — the live VK Thermo / Temptress temperature
+ *     (`temperature` / `temperature2`), read APP-SIDE via the NXP custom
+ *     commands in `nxpCommands.ts` over the generic raw NfcV primitive
+ *     `nfcManager.sendRawNfcV`. These NXP proprietary commands (READ_CONFIG,
+ *     WRITE_CONFIG, READ_I2C, WRITE_I2C, READ_SRAM) are DT custom hardware and
+ *     deliberately do NOT live in the library — the library only provides the
+ *     generic raw-transceive primitive; the app builds the frames.
  *
- * FORK GAP: the NTAG5 sensor *temperature* (`temperature` / `temperature2`) and
- * Temptress dual-sensor detection are NOT re-homed. The old `ntag5sensor.ts`
- * read them by enabling energy harvesting and driving an I2C passthrough, which
- * requires NXP proprietary custom commands — READ_CONFIG (0xC0),
- * WRITE_CONFIG (0xC1), READ_I2C (0xD5), WRITE_I2C (0xD4) and READ_SRAM (0xD2),
- * each wrapped in an NXP manufacturer-specific 15693 frame. The library's
- * `Iso15693Transponder` exposes only the standard commands (GET_SYSTEM_INFO,
- * READ/WRITE_SINGLE_BLOCK, READ_MULTIPLE_BLOCK), so there is no library method
- * to send these. The fix is for the fork to add an NTAG5 NXP-custom-command
- * surface (e.g. `Ntag5Transponder.readConfig(addr)` / `writeConfig(addr,data)`
- * and an I2C passthrough `readI2c`/`writeI2c`/`readSram`, or a generic
- * `nxpCustomCommand(cmd, params)`). Until then the temperature path is stubbed
- * (fields left undefined) rather than raw-transceived. The Thermo signature
- * read from config blocks 0x00-0x07 (`readThermoSignature`, READ_CONFIG 0xC0)
- * is part of the same gap and is likewise omitted.
+ * Sequencing: the temperature read runs LAST. `sendRawNfcV` connects to the
+ * present tag on demand (via `transceiveToPresentTag`, whose connect → close →
+ * connect handshake gives a clean activation), but it ends by cancelling the
+ * reader tech request — after it, the library transport is spent. So it must
+ * follow the library's `getSystemInfo` (naming) and `readSingleBlock` (Spark)
+ * reads. For a VK Thermo the Spark path is skipped (already named), so the
+ * temperature read is effectively last regardless.
  *
  * Best-effort: a probe failure leaves the field undefined and never throws.
  */
@@ -1094,8 +1105,6 @@ export async function enrichNfcV(
       app.productKind = 'implant';
     }
   }
-  // FORK GAP (see the doc comment): NTAG5 temperature / Temptress reads need
-  // NXP custom commands the library does not expose — left undefined.
 
   // 2. ISO 15693 Spark — NDEF vivokey.co URL names a Spark 1 implant.
   if (!app.implantName) {
@@ -1103,6 +1112,33 @@ export async function enrichNfcV(
     if (spark) {
       app.implantName = spark;
       app.productKind = 'implant';
+    }
+  }
+
+  // 3. NTAG5 temperature — live VK Thermo / Temptress reading, app-side over
+  //    the generic raw NfcV primitive. Runs last (see the doc comment). Only
+  //    the NTAG5 chips with an I2C passthrough support it. Best-effort.
+  if (isNtag5SensorChip(app.type)) {
+    try {
+      const sensors = await readNtag5Temperatures(
+        app.rawData.uid,
+        sysInfo?.afi,
+        sysInfo?.dsfid,
+      );
+      if (sensors.temperature) {
+        app.temperature = sensors.temperature;
+      }
+      if (sensors.temperature2) {
+        app.temperature2 = sensors.temperature2;
+      }
+      // A Temptress is named only by its dual-sensor I2C topology (no VivoKey
+      // AFI), so pick up that name when the standard naming above found none.
+      if (!app.implantName && sensors.implantName) {
+        app.implantName = sensors.implantName;
+        app.productKind = 'implant';
+      }
+    } catch {
+      // Sensor read is best-effort — leave the fields undefined on failure.
     }
   }
 }
