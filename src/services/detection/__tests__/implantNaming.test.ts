@@ -27,7 +27,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-import {getJavacardImplantName} from '../detector';
+import {getJavacardImplantName} from '../javacardIdentity';
 
 const APEX_TOTAL = 84336;
 const APEX2_TOTAL = 311852;

@@ -348,7 +348,7 @@ export function formatNtagVersionInfo(info: NtagVersionInfo): string {
  * Looking for 4+ character partial matches (case-insensitive)
  * Note: Only includes Type 2 (NTAG/Ultralight) based implants
  */
-const KNOWN_IMPLANT_NAMES = [
+export const KNOWN_IMPLANT_NAMES = [
   // X-Series NTAG implants
   'xNT',
   'xSIID',
@@ -386,6 +386,29 @@ function bytesToAscii(bytes: number[]): string {
     .filter(b => b >= 0x20 && b <= 0x7e) // Printable ASCII only
     .map(b => String.fromCharCode(b))
     .join('');
+}
+
+/**
+ * Scan a raw memory byte array for a Dangerous Things implant name.
+ *
+ * Pure: no I/O. The name is written into Type 2 tag memory as ASCII, so we
+ * decode the printable bytes and look for a 4+ character partial match against
+ * {@link KNOWN_IMPLANT_NAMES} (case-insensitive). Returns the matched name, or
+ * `undefined`.
+ *
+ * Extracted from {@link detectImplantNameInMemory} so the identify() adapter
+ * can feed it whatever memory the library transponder's `readUserMemory()`
+ * dumps, keeping the DT interpretation identical while the read mechanism
+ * changes.
+ */
+export function matchImplantNameInBytes(bytes: number[]): string | undefined {
+  const upperAscii = bytesToAscii(bytes).toUpperCase();
+  for (const name of KNOWN_IMPLANT_NAMES) {
+    if (name.length >= 4 && upperAscii.includes(name.toUpperCase())) {
+      return name;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -427,20 +450,17 @@ export async function detectImplantNameInMemory(
       response.map(b => b.toString(16).padStart(2, '0')).join(' '),
     );
 
-    const asciiStr = bytesToAscii(response);
-    console.log(`[NTAG] ASCII: "${asciiStr}"`);
+    console.log(`[NTAG] ASCII: "${bytesToAscii(response)}"`);
 
     // Look for 4+ character matches (case-insensitive)
-    const upperAscii = asciiStr.toUpperCase();
-    for (const name of KNOWN_IMPLANT_NAMES) {
-      if (name.length >= 4 && upperAscii.includes(name.toUpperCase())) {
-        console.log(`[NTAG] Found implant name: ${name}`);
-        return {
-          found: true,
-          name,
-          rawBytes: response,
-        };
-      }
+    const match = matchImplantNameInBytes(response);
+    if (match) {
+      console.log(`[NTAG] Found implant name: ${match}`);
+      return {
+        found: true,
+        name: match,
+        rawBytes: response,
+      };
     }
 
     // If not found in last 4 pages, try the 4 pages before that
@@ -450,18 +470,14 @@ export async function detectImplantNameInMemory(
         `[NTAG] Trying earlier pages ${earlierStartPage}-${earlierStartPage + 3}`,
       );
       const earlierResponse = await sendType2Command(ntagRead(earlierStartPage));
-      const earlierAscii = bytesToAscii(earlierResponse);
-      const upperEarlierAscii = earlierAscii.toUpperCase();
-
-      for (const name of KNOWN_IMPLANT_NAMES) {
-        if (name.length >= 4 && upperEarlierAscii.includes(name.toUpperCase())) {
-          console.log(`[NTAG] Found implant name in earlier pages: ${name}`);
-          return {
-            found: true,
-            name,
-            rawBytes: earlierResponse,
-          };
-        }
+      const earlierMatch = matchImplantNameInBytes(earlierResponse);
+      if (earlierMatch) {
+        console.log(`[NTAG] Found implant name in earlier pages: ${earlierMatch}`);
+        return {
+          found: true,
+          name: earlierMatch,
+          rawBytes: earlierResponse,
+        };
       }
     }
 

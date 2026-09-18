@@ -51,7 +51,9 @@ describe('libToAppTransponder', () => {
       family: ChipFamily.NTAG,
       uid: [0x04, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56],
       sak: 0x00,
-      atqa: [0x00, 0x44],
+      // Library emits ATQA in raw little-endian (Android getAtqa) order; the
+      // adapter reverses it to the app's big-endian convention → "00:44".
+      atqa: [0x44, 0x00],
       ats: [0x0a, 0x0b],
       historicalBytes: [0x0a, 0x0b],
     });
@@ -170,5 +172,111 @@ describe('identifyTransponder', () => {
     expect(t.chipName).toBe('NTAG215');
     expect(t.memorySize).toBe(504);
     expect(t.rawData.uid).toBe('04:99:88:77:66:55:44');
+  });
+});
+
+/** Encode an ASCII string as a byte array. */
+function ascii(s: string): number[] {
+  return [...s].map(c => c.charCodeAt(0));
+}
+
+/** Build a MemorySector[] from a flat byte array (single sector, 4-byte blocks). */
+function memory(bytes: number[]) {
+  const blocks = [];
+  for (let i = 0; i < bytes.length; i += 4) {
+    blocks.push({address: i / 4, bytes: bytes.slice(i, i + 4)});
+  }
+  return [{sector: 0, blocks}];
+}
+
+describe('enrich (DT layer)', () => {
+  beforeEach(() => mockIdentify.mockReset());
+
+  it('reads a DT implant name from NTAG user memory (live)', async () => {
+    const lib = fakeLib({
+      chip: ChipType.NTAG216,
+      family: ChipFamily.NTAG,
+      uid: [0x04, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06],
+      // readUserMemory() dumps the user area; the DT name lives in it.
+      readUserMemory: async () => memory(ascii('....flexNT....')),
+    });
+    mockIdentify.mockResolvedValue(lib);
+
+    const t = await identifyTransponder({platform: 'android'});
+    expect(t.implantName).toBe('flexNT');
+    expect(t.productKind).toBe('implant');
+    // Capabilities are derived for every result now.
+    expect(t.capabilities).toEqual(expect.arrayContaining(['ntag-type2']));
+  });
+
+  it('does not fail when NTAG user-memory read throws', async () => {
+    const lib = fakeLib({
+      chip: ChipType.NTAG213,
+      family: ChipFamily.NTAG,
+      uid: [0x04, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
+      readUserMemory: async () => {
+        throw new Error('tag lost');
+      },
+    });
+    mockIdentify.mockResolvedValue(lib);
+
+    const t = await identifyTransponder({platform: 'android'});
+    expect(t.implantName).toBeUndefined();
+    expect(t.type).toBe(ChipType.NTAG213);
+  });
+
+  it('stamps dtProduct + implant name from the DT historical-byte signature', async () => {
+    // "JDNGRfS180" = flexSecure, an official DT implant.
+    const lib = fakeLib({
+      chip: ChipType.JCOP4,
+      family: ChipFamily.JAVACARD,
+      uid: [0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+      historicalBytes: ascii('JDNGRfS180'),
+    });
+    mockIdentify.mockResolvedValue(lib);
+
+    const t = await identifyTransponder({platform: 'android'});
+    expect(t.dtProduct).toEqual({name: 'flexSecure', kind: 'implant'});
+    expect(t.implantName).toBe('flexSecure');
+    expect(t.productKind).toBe('implant');
+    expect(t.confidence).toBe('high');
+  });
+
+  it('maps JavaCard CPLC + identity from the library probe data', async () => {
+    // A Fidesmo device on J3R180 silicon → an Apex (IC-type path, no storage
+    // needed). The library surfaces the parsed CPLC + present applet AIDs.
+    const lib = fakeLib({
+      chip: ChipType.JCOP4,
+      family: ChipFamily.JAVACARD,
+      uid: [0x04, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff],
+      cplc: {
+        icFabricator: 0x4790,
+        icType: 0xd321, // → J3R180
+        osId: 0x4791,
+        osBuildDate: 0,
+        icFabricationDate: 0,
+        icSerialNumber: 0,
+        icBatchIdentifier: 0,
+        icModulePackager: 0,
+        installerIdentifier: 0,
+        raw: '',
+      },
+      // Fidesmo App AID present.
+      aids: [[0xa0, 0x00, 0x00, 0x06, 0x17, 0x02, 0x00, 0x02, 0x00, 0x00, 0x01]],
+      isdSelected: true,
+    } as Partial<LibTransponder>);
+    mockIdentify.mockResolvedValue(lib);
+
+    const t = await identifyTransponder({platform: 'android'});
+    expect(t.cplc?.icTypeName).toBe('J3R180');
+    expect(t.installedApplets).toContain('Fidesmo');
+    expect(t.implantName).toBe('Apex');
+    expect(t.identityEvidence).toBeDefined();
+    // ISD answered → a javacard credential is recorded.
+    expect(t.credentials?.some(c => c.kind === 'javacard')).toBe(true);
+    // …and the JavaCard substrate capability is derived from it.
+    expect(t.capabilities).toEqual(
+      expect.arrayContaining(['iso7816-substrate']),
+    );
   });
 });
