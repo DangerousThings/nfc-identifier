@@ -92,7 +92,11 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   return (
     <View style={styles.container}>
       <Surface style={[styles.header, { paddingTop: insets.top + 20 }]} elevation={0}>
-        <Text variant="displaySmall" style={styles.title}>
+        <Text
+          variant="displaySmall"
+          style={styles.title}
+          numberOfLines={1}
+          adjustsFontSizeToFit>
           DANGEROUS THINGS
         </Text>
         <Text variant="headlineSmall" style={styles.subtitle}>
