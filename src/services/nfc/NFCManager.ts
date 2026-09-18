@@ -566,13 +566,18 @@ class NFCManagerService {
           ],
           {
             // Reader mode instead of foreground dispatch: no platform scan
-            // sound, and no NDEF read behind our back before we get the tag.
-            // Reader mode instead of foreground dispatch: no platform scan
-            // sound, no NDEF read before we get the tag. Default presence-check
-            // delay — normal tag discovery / removal, unlike the raw-send
-            // session below.
+            // sound, no NDEF read behind our back before we get the tag.
             isReaderModeEnabled: true,
             readerModeFlags: READER_MODE_FLAGS,
+            // Presence check OFF for the whole scan, same as the SEND RAW
+            // session. identify()'s magic sweep reconnects (close->connect) and
+            // must send the UG4 backdoor `CF..C6` as the FIRST frame after
+            // SELECT; at the default 250 ms a presence-check READ lands between
+            // connect() and CF on a Type 2 tag, so CF is second and the UG4 is
+            // missed. This is a one-shot scan (discover -> identify -> release),
+            // so we never need reader-mode removal detection — unlike the
+            // app-wide warning on beginPresentTagSession().
+            readerModeDelay: PRESENCE_CHECK_OFF,
           },
         );
       }
