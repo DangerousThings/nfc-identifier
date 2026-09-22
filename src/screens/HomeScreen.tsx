@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Alert, ScrollView, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, Alert, ScrollView, useWindowDimensions, Linking } from 'react-native';
 import { Text, Surface } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,6 +19,7 @@ import { SWIPE_BACK_OPTIONS, useSwipeBack } from '../hooks/useSwipeBack';
 import { useAppearance } from '../hooks/useAppearance';
 import { sampleCollector } from '../services/motion';
 import { VersionInfo } from '../components/VersionInfo';
+import { buildTrackedUrl } from '../utils/utm';
 import { SendRawModal } from '../components/SendRawModal';
 import type { HomeScreenProps } from '../types/navigation';
 
@@ -226,8 +227,15 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       />
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-        <Text variant="bodySmall" style={styles.footerText}>
-          dngr.us
+        <Text
+          variant="bodySmall"
+          style={styles.footerText}
+          onPress={() =>
+            Linking.openURL(
+              buildTrackedUrl('https://dangerousthings.com', undefined, 'footer'),
+            )
+          }>
+          dangerousthings.com
         </Text>
         <VersionInfo />
       </View>

@@ -69,6 +69,7 @@ import { useFixtureCapture } from '../hooks/useFixtureCapture';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { sampleCollector } from '../services/motion';
 import { nfcManager } from '../services/nfc';
+import { buildTrackedUrl } from '../utils/utm';
 import * as fixtureRecorder from '../services/detection/fixtureRecorder';
 import { emulatedCredentials } from '../services/detection/dtEnrich';
 import * as Clipboard from 'expo-clipboard';
@@ -279,18 +280,6 @@ export function ResultScreen({ route, navigation }: ResultScreenProps) {
     const json = JSON.stringify(fixture, null, 2);
     await Clipboard.setStringAsync(json);
     console.log('[Detector] Fixture copied to clipboard');
-  };
-
-  // Build URL with UTM tracking parameters for analytics
-  const buildTrackedUrl = (baseUrl: string, content?: string) => {
-    const url = new URL(baseUrl);
-    url.searchParams.set('utm_source', 'dt_nfc_identifier');
-    url.searchParams.set('utm_medium', 'app');
-    url.searchParams.set('utm_campaign', 'chip_scan');
-    if (content) {
-      url.searchParams.set('utm_content', content);
-    }
-    return url.toString();
   };
 
   const handleConversionLink = () => {

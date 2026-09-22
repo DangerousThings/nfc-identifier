@@ -27,15 +27,16 @@ import type {
 /**
  * Reader mode covers every technology the app polls for: with reader mode on,
  * a technology whose flag is missing is simply never discovered.
- * SKIP_NDEF_CHECK keeps the platform from reading the tag before we do,
- * NO_PLATFORM_SOUNDS silences the system chirp.
+ * SKIP_NDEF_CHECK keeps the platform from reading the tag before we do.
+ * NO_PLATFORM_SOUNDS is deliberately NOT set — we want the system's default
+ * tag-discovery chirp (and its haptic on devices that pair one with it) as scan
+ * feedback.
  */
 const READER_MODE_FLAGS =
   NfcAdapter.FLAG_READER_NFC_A |
   NfcAdapter.FLAG_READER_NFC_B |
   NfcAdapter.FLAG_READER_NFC_V |
-  NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK |
-  NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS;
+  NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK;
 
 /**
  * Reader-mode presence-check delay (EXTRA_READER_PRESENCE_CHECK_DELAY), ms.
